@@ -374,116 +374,128 @@ class BandwidthMonitor:
     def __init__(self, target_ips, iface=None):
         self.target_ips = target_ips
         self.iface = iface
-        self.ifb_iface = "ifb0"
         self.bytes_up = defaultdict(int)
         self.bytes_down = defaultdict(int)
         self.running = threading.Event()
         self._lock = threading.Lock()
-        self.packet_count = defaultdict(int)  # Debug: count packets per IP
+        self.packet_count = defaultdict(int)
+        self.iptables_chains = []
 
     def start(self):
         self.running.clear()
-        print(colored(f"[+] Bandwidth monitor started on interface: {self.iface}", "green"))
-
-        # Start sniffing on main interface (always)
-        threading.Thread(target=self._sniff, args=(self.iface,), daemon=True).start()
-
-        # Small delay to let system settle (especially after TC setup)
-        time.sleep(0.3)
-
-        # Only start sniffing on ifb0 if it's up and available
-        if ensure_interface_up(self.ifb_iface):
-            print(colored(f"[+] Also monitoring shaped download traffic on {self.ifb_iface}", "green"))
-            threading.Thread(target=self._sniff, args=(self.ifb_iface,), daemon=True).start()
-        else:
-            print(colored(f"[!] Skipping {self.ifb_iface} — interface is down or does not exist.", "yellow"))
-
-        threading.Thread(target=self._display, daemon=True).start()
-
-    def _process_packet(self, pkt):
-        if scapy.IP in pkt:
-            size = len(pkt)
-            src_ip = pkt[scapy.IP].src
-            dst_ip = pkt[scapy.IP].dst
+        print(colored(f"[+] Bandwidth monitor using iptables counters (accurate for MITM)", "green"))
+        
+        # Create iptables rules to count bytes for each target IP
+        for ip in self.target_ips:
+            # Count upload (packets FROM target)
+            rule_up = ["iptables", "-I", "FORWARD", "-s", ip, "-j", "ACCEPT"]
+            subprocess.run(rule_up, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+            self.iptables_chains.append(("FORWARD", "-s", ip))
             
-            with self._lock:
-                # Upload: packet FROM target (regardless of interface)
-                if src_ip in self.target_ips:
-                    self.bytes_up[src_ip] += size
-                    self.packet_count[src_ip] += 1
-                
-                # Download: packet TO target (regardless of interface)
-                if dst_ip in self.target_ips:
-                    self.bytes_down[dst_ip] += size
-                    self.packet_count[dst_ip] += 1
+            # Count download (packets TO target)
+            rule_down = ["iptables", "-I", "FORWARD", "-d", ip, "-j", "ACCEPT"]
+            subprocess.run(rule_down, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+            self.iptables_chains.append(("FORWARD", "-d", ip))
+        
+        print(colored(f"[+] Monitoring {len(self.target_ips)} device(s) via iptables FORWARD chain", "cyan"))
+        threading.Thread(target=self._monitor_loop, daemon=True).start()
 
-    def _sniff(self, iface):
-        if not self.target_ips:
-            return
-
-        # Skip if interface is down (especially for ifb0)
+    def _get_iptables_bytes(self, ip, direction):
+        """Get byte count from iptables for a specific IP and direction"""
         try:
-            result = subprocess.run(f"ip link show {iface} | grep -q 'state UP'", shell=True)
-            if result.returncode != 0:
-                print(colored(f"[!] Interface {iface} is down. Skipping sniffing.", "yellow"))
-                return
+            if direction == "up":
+                cmd = f"iptables -L FORWARD -v -n -x | grep -E '^\\s+[0-9]+\\s+[0-9]+\\s+ACCEPT\\s+all\\s+--\\s+\\*\\s+\\*\\s+{ip}'"
+            else:  # down
+                cmd = f"iptables -L FORWARD -v -n -x | grep -E '^\\s+[0-9]+\\s+[0-9]+\\s+ACCEPT\\s+all\\s+--\\s+\\*\\s+\\*\\s+[0-9.]+\\s+{ip}'"
+            
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            if result.stdout:
+                # Parse: "  pkts bytes target ..."
+                parts = result.stdout.strip().split()
+                if len(parts) >= 2:
+                    return int(parts[1])  # bytes is second column
         except:
             pass
+        return 0
 
-        # NO BPF filter - capture ALL IP traffic, filter in Python (more reliable)
-        print(colored(f"[+] Sniffing on {iface} (capturing all IP traffic)", "cyan"))
-
-        try:
-            scapy.sniff(
-                iface=iface,
-                prn=self._process_packet,
-                store=False,
-                stop_filter=lambda x: self.running.is_set(),
-                filter="ip",  # Simple: just capture all IP packets
-                promisc=True
-            )
-        except Exception as e:
-            if "Network is down" in str(e) or "Errno 100" in str(e):
-                print(colored(f"[!] Interface {iface} went down. Stopping sniff thread.", "yellow"))
-            else:
-                print(colored(f"[!] Sniffing error on {iface}: {e}", "red"))
+    def _monitor_loop(self):
+        """Poll iptables counters every few seconds"""
+        last_bytes_up = defaultdict(int)
+        last_bytes_down = defaultdict(int)
+        
+        while not self.running.is_set():
+            time.sleep(3)
+            
+            with self._lock:
+                for ip in self.target_ips:
+                    current_up = self._get_iptables_bytes(ip, "up")
+                    current_down = self._get_iptables_bytes(ip, "down")
+                    
+                    # Calculate delta
+                    self.bytes_up[ip] = current_up - last_bytes_up[ip]
+                    self.bytes_down[ip] = current_down - last_bytes_down[ip]
+                    
+                    if self.bytes_up[ip] > 0 or self.bytes_down[ip] > 0:
+                        self.packet_count[ip] += 1
+                    
+                    last_bytes_up[ip] = current_up
+                    last_bytes_down[ip] = current_down
 
     def _display(self):
-        last_time = time.time()
+        """Display bandwidth statistics from collected data"""
         while not self.running.is_set():
-            time.sleep(2)
-            now = time.time()
-            elapsed = now - last_time
-            if elapsed <= 0:
-                continue
-
-            title = "--- Bandwidth Usage (KB/s) ---"
+            time.sleep(3)  # Match monitoring interval
+            
+            title = "--- Bandwidth Usage (Real-time via iptables) ---"
             if len(self.target_ips) > 5:
                 title += f" [Monitoring {len(self.target_ips)} devices]"
             print(colored(f"\n{title}", "yellow"))
 
             with self._lock:
-                any_output = False
+                any_traffic = False
                 displayed = 0
                 for ip in self.target_ips:
-                    up_kb = (self.bytes_up[ip] / 1024) / elapsed
-                    down_kb = (self.bytes_down[ip] / 1024) / elapsed
-                    pkt_count = self.packet_count[ip]
-                    print(f"{ip.ljust(15)} | UP: {up_kb:.2f} KB/s | DOWN: {down_kb:.2f} KB/s | Pkts: {pkt_count}")
-                    self.bytes_up[ip], self.bytes_down[ip] = 0, 0
-                    self.packet_count[ip] = 0
-                    any_output = True
+                    up_bytes = self.bytes_up[ip]
+                    down_bytes = self.bytes_down[ip]
+                    
+                    # Calculate rate (bytes/3sec = bytes/sec)
+                    up_kb = (up_bytes / 1024) / 3.0
+                    down_kb = (down_bytes / 1024) / 3.0
+                    
+                    if up_bytes > 0 or down_bytes > 0:
+                        any_traffic = True
+                    
+                    # Show rate and total transferred in this interval
+                    print(f"{ip.ljust(15)} | UP: {up_kb:6.2f} KB/s ({up_bytes:,} B) | DOWN: {down_kb:6.2f} KB/s ({down_bytes:,} B)")
+                    
+                    # Reset for next interval (we already calculated rate)
+                    self.bytes_up[ip] = 0
+                    self.bytes_down[ip] = 0
+                    
                     displayed += 1
                     if displayed >= 20:
                         print(colored("... (showing top 20)", "blue"))
                         break
-                if not any_output:
-                    print(colored("[DEBUG] No traffic captured for target IPs. Is ARP spoofing active?", "red"))
-            last_time = now
+                
+                if not any_traffic:
+                    print(colored("[!] No traffic detected. Ensure target devices are using internet.", "yellow"))
+        
         print(colored("[+] Bandwidth monitor stopped.", "yellow"))
 
     def stop(self):
+        """Stop monitoring and cleanup iptables rules"""
         self.running.set()
+        time.sleep(1)
+        
+        # Remove iptables counting rules
+        for chain, flag, ip in self.iptables_chains:
+            try:
+                subprocess.run(["iptables", "-D", chain, flag, ip, "-j", "ACCEPT"], 
+                             stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+            except:
+                pass
+        self.iptables_chains.clear()
+        print(colored("[+] Removed iptables monitoring rules", "cyan"))
 
 
 # -------------------------
@@ -605,6 +617,7 @@ def main():
                     monitor.start()
                     display_list = ', '.join(target_ips[:5]) + ('...' if len(target_ips) > 5 else '')
                     print(colored(f"[+] Monitoring {len(target_ips)} device(s): {display_list}", "green"))
+                    print(colored("[!] TIP: Make target device(s) browse internet, stream video, or download to see traffic", "cyan"))
             
             elif choice == "6": # Restore
                 controller.restore_all()
