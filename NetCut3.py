@@ -282,9 +282,13 @@ class NetworkController:
             # Add default class 10 with high rate (unlimited fallback)
             self._run_cmd(f"tc class add dev {self.iface} parent 1: classid 1:10 htb rate 1000mbit ceil 1000mbit")
 
-        # Add throttled class for this IP
+        # Add throttled class for this IP with burst parameters for smooth traffic flow
         self._run_cmd(f"tc class del dev {self.iface} parent 1: classid 1:{mark} 2>/dev/null || true")
-        self._run_cmd(f"tc class add dev {self.iface} parent 1: classid 1:{mark} htb rate {up_rate} ceil {up_rate}")
+        # burst and cburst allow temporary bursts, preventing TCP stalls
+        self._run_cmd(f"tc class add dev {self.iface} parent 1: classid 1:{mark} htb rate {up_rate} ceil {up_rate} burst 15k cburst 15k")
+        
+        # Attach leaf qdisc for smooth queuing (fq_codel handles packet scheduling)
+        self._run_cmd(f"tc qdisc add dev {self.iface} parent 1:{mark} handle {mark}: fq_codel")
 
         # Remove old filter, add new one
         self._run_cmd(f"tc filter del dev {self.iface} parent 1: protocol ip handle {mark} fw 2>/dev/null || true")
@@ -305,9 +309,13 @@ class NetworkController:
             # Add default class 10 with high rate (unlimited fallback)
             self._run_cmd(f"tc class add dev {self.ifb_device} parent 1: classid 1:10 htb rate 1000mbit ceil 1000mbit")
 
-        # Add throttled class for this IP
+        # Add throttled class for this IP with burst parameters for smooth traffic flow
         self._run_cmd(f"tc class del dev {self.ifb_device} parent 1: classid 1:{mark} 2>/dev/null || true")
-        self._run_cmd(f"tc class add dev {self.ifb_device} parent 1: classid 1:{mark} htb rate {down_rate} ceil {down_rate}")
+        # burst and cburst allow temporary bursts, preventing TCP stalls
+        self._run_cmd(f"tc class add dev {self.ifb_device} parent 1: classid 1:{mark} htb rate {down_rate} ceil {down_rate} burst 15k cburst 15k")
+        
+        # Attach leaf qdisc for smooth queuing (fq_codel handles packet scheduling)
+        self._run_cmd(f"tc qdisc add dev {self.ifb_device} parent 1:{mark} handle {mark}: fq_codel")
 
         # Remove old filter, add new one
         self._run_cmd(f"tc filter del dev {self.ifb_device} parent 1: protocol ip handle {mark} fw 2>/dev/null || true")
@@ -384,11 +392,17 @@ class BandwidthMonitor:
     def _process_packet(self, pkt):
         if scapy.IP in pkt:
             size = len(pkt)
+            src_ip = pkt[scapy.IP].src
+            dst_ip = pkt[scapy.IP].dst
+            
             with self._lock:
-                if pkt[scapy.IP].src in self.target_ips:
-                    self.bytes_up[pkt[scapy.IP].src] += size
-                if pkt[scapy.IP].dst in self.target_ips:
-                    self.bytes_down[pkt[scapy.IP].dst] += size
+                # Upload: packet FROM target (regardless of interface)
+                if src_ip in self.target_ips:
+                    self.bytes_up[src_ip] += size
+                
+                # Download: packet TO target (regardless of interface)
+                if dst_ip in self.target_ips:
+                    self.bytes_down[dst_ip] += size
 
     def _sniff(self, iface):
         if not self.target_ips:
@@ -403,7 +417,8 @@ class BandwidthMonitor:
         except:
             pass
 
-        clauses = [f"host {ip}" for ip in self.target_ips]
+        # Build filter for bidirectional traffic (src OR dst)
+        clauses = [f"(src host {ip} or dst host {ip})" for ip in self.target_ips]
         bpf_filter = " or ".join(clauses) if clauses else "false"
         print(colored(f"[+] Sniffing on {iface} with filter: '{bpf_filter}'", "cyan"))
 
