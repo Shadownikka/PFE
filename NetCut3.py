@@ -159,6 +159,7 @@ class ARPSpoofer:
 
     def start(self):
         self.spoofing.clear()
+        print(colored(f"[+] Starting ARP spoofing: {self.target['ip']} <-> {self.gateway['ip']}", "cyan"))
         threading.Thread(target=self._spoof_loop, daemon=True).start()
 
     def stop(self):
@@ -184,10 +185,12 @@ class NetworkController:
         self.packet_buffer = deque()
         self.buffer_lock = threading.Lock()
 
-    def _run_cmd(self, cmd):
+    def _run_cmd(self, cmd, silent=True):
         result = subprocess.run(cmd, shell=True, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
-        if result.returncode != 0:
-            pass  # Suppress noise, enable for debugging if needed
+        if result.returncode != 0 and not silent:
+            err = result.stderr.decode('utf-8', errors='ignore')
+            print(colored(f"[DEBUG] Command failed: {cmd}\n{err}", "red"))
+        return result.returncode
 
     # --- Methods for NFQUEUE (Block only) ---
     def _process_nfqueue_packet(self, packet):
@@ -284,11 +287,12 @@ class NetworkController:
 
         # Add throttled class for this IP with burst parameters for smooth traffic flow
         self._run_cmd(f"tc class del dev {self.iface} parent 1: classid 1:{mark} 2>/dev/null || true")
-        # burst and cburst allow temporary bursts, preventing TCP stalls
-        self._run_cmd(f"tc class add dev {self.iface} parent 1: classid 1:{mark} htb rate {up_rate} ceil {up_rate} burst 15k cburst 15k")
+        # Large burst values to prevent TCP stalls (buffer = rate * 1.5 seconds)
+        burst_size = max(int(up_kbit * 1.5 / 8), 2000)  # At least 2KB
+        self._run_cmd(f"tc class add dev {self.iface} parent 1: classid 1:{mark} htb rate {up_rate} burst {burst_size} cburst {burst_size}")
         
-        # Attach leaf qdisc for smooth queuing (fq_codel handles packet scheduling)
-        self._run_cmd(f"tc qdisc add dev {self.iface} parent 1:{mark} handle {mark}: fq_codel")
+        # Attach sfq leaf qdisc (simpler, more reliable than fq_codel)
+        self._run_cmd(f"tc qdisc add dev {self.iface} parent 1:{mark} handle {mark}: sfq perturb 10")
 
         # Remove old filter, add new one
         self._run_cmd(f"tc filter del dev {self.iface} parent 1: protocol ip handle {mark} fw 2>/dev/null || true")
@@ -311,11 +315,12 @@ class NetworkController:
 
         # Add throttled class for this IP with burst parameters for smooth traffic flow
         self._run_cmd(f"tc class del dev {self.ifb_device} parent 1: classid 1:{mark} 2>/dev/null || true")
-        # burst and cburst allow temporary bursts, preventing TCP stalls
-        self._run_cmd(f"tc class add dev {self.ifb_device} parent 1: classid 1:{mark} htb rate {down_rate} ceil {down_rate} burst 15k cburst 15k")
+        # Large burst values to prevent TCP stalls (buffer = rate * 1.5 seconds)
+        burst_size = max(int(down_kbit * 1.5 / 8), 2000)  # At least 2KB
+        self._run_cmd(f"tc class add dev {self.ifb_device} parent 1: classid 1:{mark} htb rate {down_rate} burst {burst_size} cburst {burst_size}")
         
-        # Attach leaf qdisc for smooth queuing (fq_codel handles packet scheduling)
-        self._run_cmd(f"tc qdisc add dev {self.ifb_device} parent 1:{mark} handle {mark}: fq_codel")
+        # Attach sfq leaf qdisc (simpler, more reliable than fq_codel)
+        self._run_cmd(f"tc qdisc add dev {self.ifb_device} parent 1:{mark} handle {mark}: sfq perturb 10")
 
         # Remove old filter, add new one
         self._run_cmd(f"tc filter del dev {self.ifb_device} parent 1: protocol ip handle {mark} fw 2>/dev/null || true")
@@ -328,6 +333,11 @@ class NetworkController:
 
         self.active_tc_limits[ip] = (down_kbit, up_kbit)
         print(colored(f"[+] Bandwidth limit set for {ip}: DOWN {down_kbit/8:.1f}KB/s, UP {up_kbit/8:.1f}KB/s", "green"))
+        
+        # Verify rules were added
+        print(colored(f"[DEBUG] Verifying TC setup for {ip}...", "cyan"))
+        subprocess.run(f"tc class show dev {self.iface} | grep {mark}", shell=True)
+        subprocess.run(f"iptables -t mangle -L -n -v | grep {ip} | head -2", shell=True)
     def remove_bandwidth_limit(self, ip):
         if ip not in self.active_tc_limits: return
         mark = str((hash(ip) % 200) + 50)
@@ -369,6 +379,7 @@ class BandwidthMonitor:
         self.bytes_down = defaultdict(int)
         self.running = threading.Event()
         self._lock = threading.Lock()
+        self.packet_count = defaultdict(int)  # Debug: count packets per IP
 
     def start(self):
         self.running.clear()
@@ -399,10 +410,12 @@ class BandwidthMonitor:
                 # Upload: packet FROM target (regardless of interface)
                 if src_ip in self.target_ips:
                     self.bytes_up[src_ip] += size
+                    self.packet_count[src_ip] += 1
                 
                 # Download: packet TO target (regardless of interface)
                 if dst_ip in self.target_ips:
                     self.bytes_down[dst_ip] += size
+                    self.packet_count[dst_ip] += 1
 
     def _sniff(self, iface):
         if not self.target_ips:
@@ -417,10 +430,8 @@ class BandwidthMonitor:
         except:
             pass
 
-        # Build filter for bidirectional traffic (src OR dst)
-        clauses = [f"(src host {ip} or dst host {ip})" for ip in self.target_ips]
-        bpf_filter = " or ".join(clauses) if clauses else "false"
-        print(colored(f"[+] Sniffing on {iface} with filter: '{bpf_filter}'", "cyan"))
+        # NO BPF filter - capture ALL IP traffic, filter in Python (more reliable)
+        print(colored(f"[+] Sniffing on {iface} (capturing all IP traffic)", "cyan"))
 
         try:
             scapy.sniff(
@@ -428,8 +439,7 @@ class BandwidthMonitor:
                 prn=self._process_packet,
                 store=False,
                 stop_filter=lambda x: self.running.is_set(),
-                filter=bpf_filter,
-                timeout=1,
+                filter="ip",  # Simple: just capture all IP packets
                 promisc=True
             )
         except Exception as e:
@@ -458,15 +468,17 @@ class BandwidthMonitor:
                 for ip in self.target_ips:
                     up_kb = (self.bytes_up[ip] / 1024) / elapsed
                     down_kb = (self.bytes_down[ip] / 1024) / elapsed
-                    print(f"{ip.ljust(15)} | UP: {up_kb:.2f} KB/s | DOWN: {down_kb:.2f} KB/s")
+                    pkt_count = self.packet_count[ip]
+                    print(f"{ip.ljust(15)} | UP: {up_kb:.2f} KB/s | DOWN: {down_kb:.2f} KB/s | Pkts: {pkt_count}")
                     self.bytes_up[ip], self.bytes_down[ip] = 0, 0
+                    self.packet_count[ip] = 0
                     any_output = True
                     displayed += 1
                     if displayed >= 20:
                         print(colored("... (showing top 20)", "blue"))
                         break
                 if not any_output:
-                    print("No traffic captured.")
+                    print(colored("[DEBUG] No traffic captured for target IPs. Is ARP spoofing active?", "red"))
             last_time = now
         print(colored("[+] Bandwidth monitor stopped.", "yellow"))
 
