@@ -1,0 +1,4 @@
+scapy>=2.5.0
+termcolor>=2.3.0
+tqdm>=4.66.0
+psutil>=5.9.0
