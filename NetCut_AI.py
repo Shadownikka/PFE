@@ -382,11 +382,13 @@ class NetCutAI:
         for ip, info in self.devices.items():
             print(f"  • {ip.ljust(15)} {info['mac']}")
 
-    def start_monitoring(self):
+    def start_monitoring(self, mode='auto'):
         """Start intelligent monitoring and auto-balancing"""
         if not self.devices:
             print(colored("[!] Scan network first", "red"))
             return
+        
+        self.mode = mode
         
         print(colored("\n" + "="*80, "cyan"))
         print(colored("🤖 STARTING AI BANDWIDTH MANAGEMENT SYSTEM", "green", attrs=["bold"]))
@@ -437,73 +439,252 @@ class NetCutAI:
         
         self.running = True
         self._display_loop()
+        
+        # After monitoring loop ends, show menu if in manual mode
+        if self.mode == 'manual':
+            while True:
+                if self.show_menu():
+                    break
 
     def _display_loop(self):
-        """Display real-time stats and auto-balance"""
+        """Display real-time stats and handle user interaction"""
         iteration = 0
+        last_input_time = time.time()
         
         while self.running:
             time.sleep(Config.MONITOR_INTERVAL)
             iteration += 1
             
-            # Auto-balance every 10 seconds
+            # Auto-balance if enabled
             if Config.AUTO_LIMIT_ENABLED and iteration % 3 == 0:
                 self.controller.auto_balance()
             
             # Display stats
+            self._display_stats()
+            
+            # Check for user input every 10 seconds
+            if time.time() - last_input_time > 10:
+                print(colored("\n[Press 'm' for menu, or wait for next update...]", "cyan"))
+                last_input_time = time.time()
+
+    def _display_stats(self):
+        """Display current statistics"""
+        os.system('clear')
+        print(colored("="*90, "cyan"))
+        print(colored("🤖 NetCut AI - Intelligent Bandwidth Management System", "green", attrs=["bold"]))
+        ai_status = colored("AI: ON", "green") if Config.AUTO_LIMIT_ENABLED else colored("AI: OFF", "red")
+        print(colored(f"Interface: {self.iface} | Gateway: {self.gateway_ip} | {ai_status}", "cyan"))
+        print(colored("="*90, "cyan"))
+        
+        stats = self.monitor.get_current_stats()
+        
+        print(colored("\n📊 REAL-TIME BANDWIDTH USAGE:", "yellow", attrs=["bold"]))
+        print(colored("-" * 90, "white"))
+        print(f"{'IP Address':<15} {'↑ Upload':<15} {'↓ Download':<15} {'Avg (60s)':<20} {'Status':<15}")
+        print(colored("-" * 90, "white"))
+        
+        total_up = 0
+        total_down = 0
+        
+        for ip, info in self.devices.items():
+            usage = stats.get(ip, {"up": 0, "down": 0})
+            avg = self.monitor.get_average_usage(ip, 60)
+            
+            total_up += usage["up"]
+            total_down += usage["down"]
+            
+            # Format speeds
+            up_str = f"{usage['up']:>6.1f} KB/s" if usage['up'] < 1000 else f"{usage['up']/1024:>6.1f} MB/s"
+            down_str = f"{usage['down']:>6.1f} KB/s" if usage['down'] < 1000 else f"{usage['down']/1024:>6.1f} MB/s"
+            avg_str = f"↑{avg['up']:.0f} ↓{avg['down']:.0f} KB/s"
+            
+            # Status
+            if ip in self.controller.limits:
+                status = colored("🔴 LIMITED", "red")
+                color = "red"
+            elif usage['down'] > 100 or usage['up'] > 100:
+                status = colored("🟢 ACTIVE", "green")
+                color = "green"
+            else:
+                status = colored("⚪ IDLE", "white")
+                color = "white"
+            
+            print(colored(f"{ip:<15} {up_str:<15} {down_str:<15} {avg_str:<20} {status:<15}", color))
+        
+        print(colored("-" * 90, "white"))
+        total_up_str = f"{total_up:.1f} KB/s" if total_up < 1000 else f"{total_up/1024:.1f} MB/s"
+        total_down_str = f"{total_down:.1f} KB/s" if total_down < 1000 else f"{total_down/1024:.1f} MB/s"
+        print(colored(f"{'TOTAL':<15} {total_up_str:<15} {total_down_str:<15}", "cyan", attrs=["bold"]))
+        
+        # Show active limits
+        if self.controller.limits:
+            print(colored("\n🔴 ACTIVE LIMITS:", "red", attrs=["bold"]))
+            for ip, limits in self.controller.limits.items():
+                print(colored(f"  • {ip}: ↓{limits['down']}KB/s ↑{limits['up']}KB/s", "yellow"))
+
+    def show_menu(self):
+        """Interactive menu for manual control"""
+        self.running = False
+        time.sleep(0.5)
+        
+        while True:
             os.system('clear')
-            print(colored("="*90, "cyan"))
-            print(colored("🤖 NetCut AI - Intelligent Bandwidth Management System", "green", attrs=["bold"]))
-            print(colored(f"Interface: {self.iface} | Gateway: {self.gateway_ip} | Auto-Balance: {'ON' if Config.AUTO_LIMIT_ENABLED else 'OFF'}", "cyan"))
-            print(colored("="*90, "cyan"))
+            print(colored("="*70, "cyan"))
+            print(colored("🎮 MANUAL CONTROL MENU", "yellow", attrs=["bold"]))
+            print(colored("="*70, "cyan"))
             
-            stats = self.monitor.get_current_stats()
+            print(colored("\n📡 DEVICES:", "cyan"))
+            ip_list = list(self.devices.keys())
+            for i, (ip, info) in enumerate(self.devices.items(), 1):
+                stats = self.monitor.get_current_stats().get(ip, {"up": 0, "down": 0})
+                status = "🔴 LIMITED" if ip in self.controller.limits else "🟢 ACTIVE" if stats['down'] > 10 else "⚪ IDLE"
+                print(f"  [{i}] {ip:<15} {info['mac']:<18} {status}")
             
-            print(colored("\n📊 REAL-TIME BANDWIDTH USAGE:", "yellow", attrs=["bold"]))
-            print(colored("-" * 90, "white"))
-            print(f"{'IP Address':<15} {'↑ Upload':<15} {'↓ Download':<15} {'Avg (60s)':<20} {'Status':<15}")
-            print(colored("-" * 90, "white"))
+            print(colored("\n⚙️  ACTIONS:", "yellow"))
+            print("  [l] Limit specific device bandwidth")
+            print("  [r] Remove limit from device")
+            print("  [b] Block device completely")
+            print("  [u] Unblock device")
+            print("  [a] Toggle AI Auto-Balance (Currently: " + (colored("ON", "green") if Config.AUTO_LIMIT_ENABLED else colored("OFF", "red")) + ")")
+            print("  [s] Show detailed statistics")
+            print("  [c] Continue monitoring (return to live view)")
+            print("  [q] Quit and restore network")
             
-            total_up = 0
-            total_down = 0
+            choice = input(colored("\n➤ Choose action: ", "green")).strip().lower()
             
-            for ip, info in self.devices.items():
-                usage = stats.get(ip, {"up": 0, "down": 0})
-                avg = self.monitor.get_average_usage(ip, 60)
-                
-                total_up += usage["up"]
-                total_down += usage["down"]
-                
-                # Format speeds
-                up_str = f"{usage['up']:>6.1f} KB/s" if usage['up'] < 1000 else f"{usage['up']/1024:>6.1f} MB/s"
-                down_str = f"{usage['down']:>6.1f} KB/s" if usage['down'] < 1000 else f"{usage['down']/1024:>6.1f} MB/s"
-                avg_str = f"↑{avg['up']:.0f} ↓{avg['down']:.0f} KB/s"
-                
-                # Status
-                if ip in self.controller.limits:
-                    status = colored("🔴 LIMITED", "red")
-                    color = "red"
-                elif usage['down'] > 100 or usage['up'] > 100:
-                    status = colored("🟢 ACTIVE", "green")
-                    color = "green"
-                else:
-                    status = colored("⚪ IDLE", "white")
-                    color = "white"
-                
-                print(colored(f"{ip:<15} {up_str:<15} {down_str:<15} {avg_str:<20} {status:<15}", color))
+            if choice == 'l':
+                self._manual_limit()
+            elif choice == 'r':
+                self._manual_remove_limit()
+            elif choice == 'b':
+                self._manual_block()
+            elif choice == 'u':
+                self._manual_unblock()
+            elif choice == 'a':
+                Config.AUTO_LIMIT_ENABLED = not Config.AUTO_LIMIT_ENABLED
+                status = colored("ENABLED", "green") if Config.AUTO_LIMIT_ENABLED else colored("DISABLED", "red")
+                print(colored(f"\n✓ AI Auto-Balance {status}", "cyan"))
+                time.sleep(1.5)
+            elif choice == 's':
+                self._show_detailed_stats()
+            elif choice == 'c':
+                print(colored("\n[+] Returning to live monitoring...", "cyan"))
+                time.sleep(1)
+                self.running = True
+                threading.Thread(target=self._display_loop, daemon=True).start()
+                break
+            elif choice == 'q':
+                self.stop()
+                return True
+    
+    def _manual_limit(self):
+        """Manually set bandwidth limit for a device"""
+        try:
+            ip_list = list(self.devices.keys())
+            idx = int(input(colored("Device number to limit: ", "yellow"))) - 1
             
-            print(colored("-" * 90, "white"))
-            total_up_str = f"{total_up:.1f} KB/s" if total_up < 1000 else f"{total_up/1024:.1f} MB/s"
-            total_down_str = f"{total_down:.1f} KB/s" if total_down < 1000 else f"{total_down/1024:.1f} MB/s"
-            print(colored(f"{'TOTAL':<15} {total_up_str:<15} {total_down_str:<15}", "cyan", attrs=["bold"]))
+            if idx < 0 or idx >= len(ip_list):
+                print(colored("Invalid device number!", "red"))
+                time.sleep(1)
+                return
             
-            # Show active limits
-            if self.controller.limits:
-                print(colored("\n🔴 ACTIVE LIMITS:", "red", attrs=["bold"]))
-                for ip, limits in self.controller.limits.items():
-                    print(colored(f"  • {ip}: ↓{limits['down']}KB/s ↑{limits['up']}KB/s", "yellow"))
+            ip = ip_list[idx]
+            print(colored(f"\nLimiting {ip}", "cyan"))
             
-            print(colored("\n[Press Ctrl+C to stop]", "cyan"))
+            down = int(input(colored("Download limit (KB/s): ", "yellow")))
+            up = int(input(colored("Upload limit (KB/s): ", "yellow")))
+            
+            if down <= 0 or up <= 0:
+                print(colored("Invalid speed values!", "red"))
+                time.sleep(1)
+                return
+            
+            self.controller.apply_limit(ip, down, up)
+            print(colored(f"\n✓ Limit applied: {ip} → ↓{down}KB/s ↑{up}KB/s", "green"))
+            time.sleep(2)
+        except (ValueError, IndexError):
+            print(colored("Invalid input!", "red"))
+            time.sleep(1)
+    
+    def _manual_remove_limit(self):
+        """Manually remove bandwidth limit"""
+        try:
+            if not self.controller.limits:
+                print(colored("\nNo active limits!", "yellow"))
+                time.sleep(1)
+                return
+            
+            print(colored("\nDevices with active limits:", "cyan"))
+            limited = list(self.controller.limits.keys())
+            for i, ip in enumerate(limited, 1):
+                limits = self.controller.limits[ip]
+                print(f"  [{i}] {ip} → ↓{limits['down']}KB/s ↑{limits['up']}KB/s")
+            
+            idx = int(input(colored("\nDevice number to remove limit: ", "yellow"))) - 1
+            
+            if idx < 0 or idx >= len(limited):
+                print(colored("Invalid device number!", "red"))
+                time.sleep(1)
+                return
+            
+            ip = limited[idx]
+            self.controller.remove_limit(ip)
+            print(colored(f"\n✓ Limit removed from {ip}", "green"))
+            time.sleep(2)
+        except (ValueError, IndexError):
+            print(colored("Invalid input!", "red"))
+            time.sleep(1)
+    
+    def _manual_block(self):
+        """Block a device completely"""
+        try:
+            ip_list = list(self.devices.keys())
+            idx = int(input(colored("Device number to BLOCK: ", "red"))) - 1
+            
+            if idx < 0 or idx >= len(ip_list):
+                print(colored("Invalid device number!", "red"))
+                time.sleep(1)
+                return
+            
+            ip = ip_list[idx]
+            # Block by setting limit to 1 KB/s (effectively blocking)
+            self.controller.apply_limit(ip, 1, 1)
+            print(colored(f"\n✓ Device {ip} BLOCKED", "red"))
+            time.sleep(2)
+        except (ValueError, IndexError):
+            print(colored("Invalid input!", "red"))
+            time.sleep(1)
+    
+    def _manual_unblock(self):
+        """Unblock a device"""
+        self._manual_remove_limit()
+    
+    def _show_detailed_stats(self):
+        """Show detailed statistics for all devices"""
+        os.system('clear')
+        print(colored("="*70, "cyan"))
+        print(colored("📊 DETAILED STATISTICS", "yellow", attrs=["bold"]))
+        print(colored("="*70, "cyan"))
+        
+        stats = self.monitor.get_current_stats()
+        
+        for ip, info in self.devices.items():
+            usage = stats.get(ip, {"up": 0, "down": 0})
+            avg_30s = self.monitor.get_average_usage(ip, 30)
+            avg_60s = self.monitor.get_average_usage(ip, 60)
+            
+            print(colored(f"\n🖥️  {ip} ({info['mac']})", "cyan", attrs=["bold"]))
+            print(f"  Current:     ↑{usage['up']:.1f} KB/s  ↓{usage['down']:.1f} KB/s")
+            print(f"  Avg (30s):   ↑{avg_30s['up']:.1f} KB/s  ↓{avg_30s['down']:.1f} KB/s")
+            print(f"  Avg (60s):   ↑{avg_60s['up']:.1f} KB/s  ↓{avg_60s['down']:.1f} KB/s")
+            
+            if ip in self.controller.limits:
+                limits = self.controller.limits[ip]
+                print(colored(f"  Status:      🔴 LIMITED (↓{limits['down']}KB/s ↑{limits['up']}KB/s)", "red"))
+            else:
+                print(colored(f"  Status:      🟢 UNLIMITED", "green"))
+        
+        input(colored("\n\nPress Enter to return to menu...", "cyan"))
 
     def stop(self):
         """Stop the system"""
@@ -524,6 +705,7 @@ def main():
 ║      🤖 NetCut AI - Intelligent Bandwidth Manager 🤖        ║
 ║                                                              ║
 ║  Automatic • Adaptive • Fair • Machine Learning-Based       ║
+║                 + Manual Control Mode                        ║
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
     """, "cyan", attrs=["bold"]))
@@ -535,9 +717,36 @@ def main():
         print(colored("[!] No devices found", "red"))
         return
     
-    print(colored("\n[?] Start intelligent bandwidth management? (y/n): ", "yellow"), end="")
-    if input().lower() == 'y':
-        ai.start_monitoring()
+    print(colored("\n" + "="*70, "yellow"))
+    print(colored("⚙️  MODE SELECTION", "yellow", attrs=["bold"]))
+    print(colored("="*70, "yellow"))
+    print("\n  [1] 🤖 Automatic AI Mode (AI manages everything)")
+    print("  [2] 🎮 Manual + AI Mode (You control, AI assists)")
+    print("  [3] ❌ Cancel")
+    
+    mode = input(colored("\n➤ Choose mode: ", "green")).strip()
+    
+    if mode == '1':
+        Config.AUTO_LIMIT_ENABLED = True
+        print(colored("\n[+] Starting in AUTOMATIC AI mode...", "cyan"))
+        time.sleep(1)
+        ai.start_monitoring(mode='auto')
+    elif mode == '2':
+        Config.AUTO_LIMIT_ENABLED = False
+        print(colored("\n[+] Starting in MANUAL + AI mode...", "cyan"))
+        print(colored("[!] Press Ctrl+C during monitoring to access menu", "yellow"))
+        time.sleep(2)
+        
+        try:
+            ai.start_monitoring(mode='manual')
+        except KeyboardInterrupt:
+            print(colored("\n\n[+] Opening menu...", "cyan"))
+            time.sleep(1)
+            while True:
+                if ai.show_menu():
+                    break
+    else:
+        print(colored("\n[!] Cancelled", "yellow"))
 
 if __name__ == "__main__":
     main()
