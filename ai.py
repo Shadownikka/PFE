@@ -257,17 +257,21 @@ class NetCutAI:
                     time.sleep(0.5)
                     result = self.show_menu()
                     
-                    # Set terminal back to raw mode
-                    try:
-                        tty.setcbreak(sys.stdin.fileno())
-                    except:
-                        pass
+                    # Flush any buffered input
+                    termios.tcflush(sys.stdin, termios.TCIOFLUSH)
+                    
+                    # Set terminal back to raw mode if continuing
+                    if not result:  # result is False when continuing monitoring
+                        try:
+                            tty.setcbreak(sys.stdin.fileno())
+                        except:
+                            pass
                     
                     if result == 'main_menu':
                         return 'main_menu'
                     elif result:
                         return True  # Quit
-                    # Otherwise continue monitoring
+                    # Otherwise continue monitoring (result is False)
         finally:
             # Always restore terminal settings
             if self.old_terminal_settings:
@@ -413,10 +417,12 @@ class NetCutAI:
                 self._show_detailed_stats()
             elif choice == 'c':
                 print(colored("\n[+] Returning to live monitoring...", "cyan"))
-                time.sleep(1)
+                # Clear screen before returning
+                os.system('clear')
+                time.sleep(0.3)
+                # Just set running to True and return - the original display loop will continue
                 self.running = True
-                threading.Thread(target=self._display_loop, daemon=True).start()
-                return False  # Don't quit
+                return False  # Don't quit, let original loop continue
             elif choice == 'm':
                 print(colored("\n[+] Returning to main menu...", "cyan"))
                 self.stop()
