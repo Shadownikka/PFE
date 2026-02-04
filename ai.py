@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-NetCut AI - Intelligent Bandwidth Management Engine
+NetMind - Intelligent Bandwidth Management Engine
 Machine learning-based traffic analysis and adaptive bandwidth allocation
 """
 
@@ -101,7 +101,7 @@ class IntelligentController:
 # -------------------------
 # Main AI System
 # -------------------------
-class NetCutAI:
+class NetMindAI:
     def __init__(self):
         if not has_root():
             print(colored("[-] Run with sudo!", "red"))
@@ -296,7 +296,7 @@ class NetCutAI:
         """Display current statistics"""
         os.system('clear')
         print(colored("="*90, "cyan"))
-        print(colored("🤖 NetCut AI - Intelligent Bandwidth Management System", "green", attrs=["bold"]))
+        print(colored("🤖 NetMind - Intelligent Bandwidth Management System", "green", attrs=["bold"]))
         ai_status = colored("AI: ON", "green") if Config.AUTO_LIMIT_ENABLED else colored("AI: OFF", "red")
         print(colored(f"Interface: {self.iface} | Gateway: {self.gateway_ip} | {ai_status}", "cyan"))
         print(colored("="*90, "cyan"))

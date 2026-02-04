@@ -1,4 +1,4 @@
-# NetCut AI - Project Structure Overview
+# NetMind - Project Structure Overview
 
 ## File Organization
 
@@ -39,7 +39,7 @@ Contains:
 
 Contains:
 - `IntelligentController` class - Wraps BandwidthController with smart algorithms
-- `NetCutAI` class - Main system orchestrator
+- `NetMindAI` class - Main system orchestrator
 - Auto-balancing algorithm - Detects and limits bandwidth hogs
 - Interactive menu system - Manual control interface with 'm' key access
 - Activity display - Shows what devices are accessing (YouTube, Netflix, etc.)
@@ -64,7 +64,7 @@ Contains:
 
 ---
 
-#### 3. **NetCut.py** (3.2 KB, ~115 lines)
+#### 3. **NetMind.py** (3.2 KB, ~115 lines)
 **Main entry point and orchestrator**
 
 Contains:
@@ -96,14 +96,14 @@ Contains:
 ## Module Hierarchy
 
 ```
-NetCut.py (Entry Point)
+NetMind.py (Entry Point)
     ↓
 Imports: ai.py
     ↓
 ai.py (AI Engine + UI)
     ├─ Imports: tool.py
     ├─ Imports: select, tty, termios (terminal control)
-    ├─ Contains: IntelligentController, NetCutAI
+    ├─ Contains: IntelligentController, NetMindAI
     └─ Uses: BandwidthController, ConnectionTracker from tool.py
     ↓
 tool.py (Core Networking)
@@ -130,9 +130,9 @@ from tool import (
 import select, tty, termios  # For 'm' key menu access
 ```
 
-### **NetCut.py**
+### **NetMind.py**
 ```python
-from ai import NetCutAI, Config
+from ai import NetMindAI, Config
 ```
 
 ---
@@ -158,7 +158,7 @@ from ai import NetCutAI, Config
   - Activity tracking integration
   - Improved menu flow without duplicate threads
 
-### **NetCut.py** - The Entry Point
+### **NetMind.py** - The Entry Point
 - **Responsibility**: User interaction and flow
 - **Abstraction Level**: User interface startup
 - **Coupling**: ai.py for engine
@@ -169,11 +169,11 @@ from ai import NetCutAI, Config
 ## Data Flow
 
 ```
-User Input (NetCut.py)
+User Input (NetMind.py)
     ↓
 Mode Selection
     ↓
-NetCutAI.start_monitoring()
+NetMindAI.start_monitoring()
     ↓
 ↙─────────────────────┬─────────────────────┬─────────────────────┐
 │                     │                     │                     │
@@ -207,7 +207,7 @@ class Config:
     AUTO_LIMIT_ENABLED = True
     BANDWIDTH_ABUSE_THRESHOLD = 5000
     TOTAL_BANDWIDTH_KBPS = None
-    STATE_FILE = "/tmp/netcut_ai_state.json"
+    STATE_FILE = "/tmp/netmind_ai_state.json"
 ```
 
 This Config class is imported and used by `ai.py` for all behavioral parameters.
@@ -265,7 +265,7 @@ Start → Scan → Monitor → Menu (press 'm') → Manual Action → Continue/S
 |------|------|-------|---------|
 | tool.py | 18.5 KB | ~619 | Core networking |
 | ai.py | 21 KB | ~676 | Intelligence & UI |
-| NetCut.py | 3.2 KB | ~115 | Entry point |
+| NetMind.py | 3.2 KB | ~115 | Entry point |
 | README.md | 10.5 KB | ~380 | Documentation |
 | **Total** | **53.2 KB** | **~1790** | Complete system |
 
@@ -317,7 +317,7 @@ Start → Scan → Monitor → Menu (press 'm') → Manual Action → Continue/S
 The modular structure enables easy addition of:
 
 1. **New Interfaces**
-   - Web UI (import NetCutAI from ai.py)
+   - Web UI (import NetMindAI from ai.py)
    - REST API (import functions from tool.py)
    - Mobile app (same imports)
 

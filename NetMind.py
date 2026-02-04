@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-NetCut AI - Intelligent Bandwidth Management System
+NetMind - Intelligent Bandwidth Management System
 Main entry point - combines tool and AI modules
 Automatic, fair, adaptive bandwidth allocation using real-time traffic analysis
 Kali Linux / Ubuntu - Production Ready
@@ -8,7 +8,7 @@ Kali Linux / Ubuntu - Production Ready
 
 import time
 from termcolor import colored
-from ai import NetCutAI, Config
+from ai import NetMindAI, Config
 
 # -------------------------
 # Main
@@ -17,7 +17,7 @@ def main():
     print(colored("""
 ╔══════════════════════════════════════════════════════════════╗
 ║                                                              ║
-║      🤖 NetCut AI - Intelligent Bandwidth Manager 🤖        ║
+║         🤖 NetMind - Intelligent Bandwidth Manager 🤖        ║
 ║                                                              ║
 ║  Automatic • Adaptive • Fair • Machine Learning-Based       ║
 ║                 + Manual Control Mode                        ║
@@ -25,7 +25,7 @@ def main():
 ╚══════════════════════════════════════════════════════════════╝
     """, "cyan", attrs=["bold"]))
     
-    ai = NetCutAI()
+    ai = NetMindAI()
     
     while True:
         ai.scan_network()

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-NetCut Tool - Core Network Monitoring and Manipulation
+NetMind Tool - Core Network Monitoring and Manipulation
 Low-level bandwidth management, ARP spoofing, and traffic control
 """
 
@@ -38,7 +38,7 @@ class Config:
     TOTAL_BANDWIDTH_KBPS = None  # None = auto-detect
     
     # Save state
-    STATE_FILE = "/tmp/netcut_ai_state.json"
+    STATE_FILE = "/tmp/netmind_ai_state.json"
 
 # -------------------------
 # Utilities

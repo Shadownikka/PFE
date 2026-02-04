@@ -1,8 +1,8 @@
-# NetCut AI - Intelligent Bandwidth Management System
+# NetMind - Intelligent Bandwidth Management System
 
 ## 🛡️ Project Overview
 
-**NetCut AI** is an advanced, machine learning-powered bandwidth management system designed for Linux-based networks (Kali Linux, Ubuntu, etc.). It automatically monitors and intelligently manages network traffic to ensure fair and efficient bandwidth allocation across all connected devices.
+**NetMind** is an advanced, machine learning-powered bandwidth management system designed for Linux-based networks (Kali Linux, Ubuntu, etc.). It automatically monitors and intelligently manages network traffic to ensure fair and efficient bandwidth allocation across all connected devices.
 
 ### Core Features
 
@@ -59,8 +59,8 @@
 
 3. **Network Layer Differences**:
    - Your phone's speed test measures at the application layer
-   - NetCut measures at the network layer (includes headers/overhead)
-   - This can show slight differences (usually NetCut shows slightly higher)
+   - NetMind measures at the network layer (includes headers/overhead)
+   - This can show slight differences (usually NetMind shows slightly higher)
 
 4. **Buffering and Caching**:
    - TCP buffering can cause momentary delays in measurement
@@ -89,8 +89,8 @@
 ## 📁 Project Structure
 
 ```
-NetCut/
-├── NetCut.py          # Main entry point (combines tool and AI)
+NetMind/
+├── NetMind.py          # Main entry point (combines tool and AI)
 ├── tool.py             # Core networking tool module
 │                       #  - ARP spoofing
 │                       #  - Traffic monitoring
@@ -123,11 +123,11 @@ Provides low-level network operations:
 #### **2. AI Engine (ai.py)**
 Implements intelligent management:
 - **IntelligentController**: Wraps BandwidthController with smart algorithms
-- **NetCutAI**: Main system orchestrator
+- **NetMindAI**: Main system orchestrator
 - **Auto-Balancing**: Detects bandwidth hogs and applies fair limits
 - **Interactive UI**: Menu-driven manual control system
 
-#### **3. Entry Point (NetCut.py)**
+#### **3. Entry Point (NetMind.py)**
 - Simple main program that imports and launches the AI system
 - Mode selection (Automatic vs Manual)
 - Clean, modular startup sequence
@@ -172,7 +172,7 @@ sudo apt-get install -y iptables iproute2 scapy
 ### Basic Launch
 
 ```bash
-sudo python3 NetCut.py
+sudo python3 NetMind.py
 ```
 
 ### Step-by-Step Operation
@@ -366,7 +366,7 @@ This ensures clean state and accurate baseline measurements.
 ### Current Status: **Active Development**
 
 #### Completed Features ✅
-- ✓ Multi-module architecture (tool.py, ai.py, NetCut.py)
+- ✓ Multi-module architecture (tool.py, ai.py, NetMind.py)
 - ✓ Traffic monitoring implementation (iptables-based)
 - ✓ Bandwidth limiting (Token Bucket algorithm with tc)
 - ✓ Manual control interface with menu system
@@ -436,7 +436,7 @@ Install all: `pip3 install -r requirements.txt`
 
 ## 📝 Project Information
 
-- **Name**: NetCut AI - Intelligent Bandwidth Management System
+- **Name**: NetMind - Intelligent Bandwidth Management System
 - **Author**: Mahdi
 - **Project Type**: Final Year Project (PFE)
 - **Academic Year**: 2025-2026
@@ -468,14 +468,14 @@ To contribute improvements:
 ### Q: Why isn't the monitoring 100% accurate?
 **A:** Network monitoring has inherent limitations:
 - **Sampling interval**: Measures every 3 seconds (bursts may be averaged)
-- **Layer differences**: Phone measures at app layer, NetCut at network layer
+- **Layer differences**: Phone measures at app layer, NetMind at network layer
 - **Overhead**: TCP/IP headers add ~5-10% extra data
 - **Expected accuracy**: Upload ±5%, Download ±10-15%
 
-### Q: My phone shows 10 Mbps but NetCut shows 8 Mbps, why?
+### Q: My phone shows 10 Mbps but NetMind shows 8 Mbps, why?
 **A:** Several reasons:
 1. Different measurement layers (see above)
-2. Time averaging - NetCut uses 3-second intervals
+2. Time averaging - NetMind uses 3-second intervals
 3. Concurrent connections may spread across intervals
 4. Use the 60-second average for better comparison
 
