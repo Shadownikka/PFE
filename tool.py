@@ -539,13 +539,21 @@ class BandwidthController:
         burst_up = max(int(up_kbps * 1.5 / 8), 2000)
         
         try:
-            # Upload limiting using TC
+            # Upload limiting using TC (traffic FROM device)
             subprocess.run(f"tc class add dev {self.iface} parent 1: classid 1:{mark} htb rate {up_kbps}kbit burst {burst_up}b", shell=True, check=True, stderr=subprocess.PIPE)
             subprocess.run(f"tc qdisc add dev {self.iface} parent 1:{mark} handle {mark}: sfq perturb 10", shell=True, check=True, stderr=subprocess.PIPE)
             subprocess.run(f"tc filter add dev {self.iface} parent 1: protocol ip prio 1 u32 match ip src {ip} flowid 1:{mark}", shell=True, check=True, stderr=subprocess.PIPE)
             
+            # Download limiting using TC (traffic TO device)
+            # Use a different mark for download (mark + 200)
+            mark_down = str(int(mark) + 200)
+            subprocess.run(f"tc class add dev {self.iface} parent 1: classid 1:{mark_down} htb rate {down_kbps}kbit burst {burst_down}b", shell=True, check=True, stderr=subprocess.PIPE)
+            subprocess.run(f"tc qdisc add dev {self.iface} parent 1:{mark_down} handle {mark_down}: sfq perturb 10", shell=True, check=True, stderr=subprocess.PIPE)
+            subprocess.run(f"tc filter add dev {self.iface} parent 1: protocol ip prio 1 u32 match ip dst {ip} flowid 1:{mark_down}", shell=True, check=True, stderr=subprocess.PIPE)
+            
             # Mark in iptables for additional control
             subprocess.run(f"iptables -t mangle -I POSTROUTING -s {ip} -j MARK --set-mark {mark}", shell=True, stderr=subprocess.DEVNULL)
+            subprocess.run(f"iptables -t mangle -I PREROUTING -d {ip} -j MARK --set-mark {mark_down}", shell=True, stderr=subprocess.DEVNULL)
             
             self.limits[ip] = {"down": down_kbps, "up": up_kbps}
             print(colored(f"[✓] Limited {ip}: ↓{down_kbps}KB/s ↑{up_kbps}KB/s", "yellow"))
@@ -560,16 +568,22 @@ class BandwidthController:
         """Remove bandwidth limit"""
         if ip in self.limits:
             mark = str((hash(ip) % 200) + 50)
-            # Delete qdisc first (if exists)
+            mark_down = str(int(mark) + 200)
+            
+            # Delete upload rules (from device)
             subprocess.run(f"tc qdisc del dev {self.iface} parent 1:{mark} 2>/dev/null", shell=True, stderr=subprocess.DEVNULL)
-            # Delete filter using proper protocol and handle
             subprocess.run(f"tc filter del dev {self.iface} parent 1: protocol ip prio 1 handle 800::{mark} u32 2>/dev/null", shell=True, stderr=subprocess.DEVNULL)
-            # Alternative: delete by matching source IP
-            subprocess.run(f"tc filter del dev {self.iface} parent 1: prio 1 2>/dev/null", shell=True, stderr=subprocess.DEVNULL)
-            # Delete class
             subprocess.run(f"tc class del dev {self.iface} parent 1: classid 1:{mark} 2>/dev/null", shell=True, stderr=subprocess.DEVNULL)
-            # Remove iptables mangle rule
+            
+            # Delete download rules (to device)
+            subprocess.run(f"tc qdisc del dev {self.iface} parent 1:{mark_down} 2>/dev/null", shell=True, stderr=subprocess.DEVNULL)
+            subprocess.run(f"tc filter del dev {self.iface} parent 1: protocol ip prio 1 handle 800::{mark_down} u32 2>/dev/null", shell=True, stderr=subprocess.DEVNULL)
+            subprocess.run(f"tc class del dev {self.iface} parent 1: classid 1:{mark_down} 2>/dev/null", shell=True, stderr=subprocess.DEVNULL)
+            
+            # Remove iptables mangle rules
             subprocess.run(f"iptables -t mangle -D POSTROUTING -s {ip} -j MARK --set-mark {mark} 2>/dev/null", shell=True, stderr=subprocess.DEVNULL)
+            subprocess.run(f"iptables -t mangle -D PREROUTING -d {ip} -j MARK --set-mark {mark_down} 2>/dev/null", shell=True, stderr=subprocess.DEVNULL)
+            
             del self.limits[ip]
             print(colored(f"[✓] Removed limit for {ip}", "green"))
 
