@@ -71,7 +71,7 @@ def main():
         elif mode == '2':
             Config.AUTO_LIMIT_ENABLED = False
             print(colored("\n[+] Starting in MANUAL + AI mode...", "cyan"))
-            print(colored("[!] Press Ctrl+C during monitoring to access menu", "yellow"))
+            print(colored("[!] Press 'm' key during monitoring to access menu", "yellow"))
             time.sleep(2)
             
             try:

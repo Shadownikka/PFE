@@ -10,6 +10,9 @@ import threading
 import sys
 import time
 import signal
+import select
+import tty
+import termios
 from termcolor import colored
 from tool import (
     Config, has_root, get_gateway_ip, get_default_interface, 
@@ -122,6 +125,7 @@ class NetCutAI:
         self.controller = None
         self.conn_tracker = None  # Connection tracker for activity monitoring
         self.running = False
+        self.old_terminal_settings = None  # Store terminal settings
         
         # Setup signal handlers
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -224,16 +228,65 @@ class NetCutAI:
         """Display real-time stats and handle user interaction"""
         iteration = 0
         
-        while self.running:
-            time.sleep(Config.MONITOR_INTERVAL)
-            iteration += 1
-            
-            # Auto-balance if enabled
-            if Config.AUTO_LIMIT_ENABLED and iteration % 3 == 0:
-                self.controller.auto_balance()
-            
-            # Display stats
-            self._display_stats()
+        # Set terminal to raw mode for non-blocking input
+        try:
+            self.old_terminal_settings = termios.tcgetattr(sys.stdin)
+            tty.setcbreak(sys.stdin.fileno())
+        except:
+            self.old_terminal_settings = None
+        
+        try:
+            while self.running:
+                time.sleep(Config.MONITOR_INTERVAL)
+                iteration += 1
+                
+                # Auto-balance if enabled
+                if Config.AUTO_LIMIT_ENABLED and iteration % 3 == 0:
+                    self.controller.auto_balance()
+                
+                # Display stats
+                self._display_stats()
+                
+                # Check for menu key press (non-blocking)
+                if self._check_for_menu_key():
+                    # Restore terminal before showing menu
+                    if self.old_terminal_settings:
+                        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self.old_terminal_settings)
+                    
+                    print(colored("\n\n[+] Opening menu...", "cyan"))
+                    time.sleep(0.5)
+                    result = self.show_menu()
+                    
+                    # Set terminal back to raw mode
+                    try:
+                        tty.setcbreak(sys.stdin.fileno())
+                    except:
+                        pass
+                    
+                    if result == 'main_menu':
+                        return 'main_menu'
+                    elif result:
+                        return True  # Quit
+                    # Otherwise continue monitoring
+        finally:
+            # Always restore terminal settings
+            if self.old_terminal_settings:
+                try:
+                    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self.old_terminal_settings)
+                except:
+                    pass
+    
+    def _check_for_menu_key(self):
+        """Non-blocking check for 'm' key press"""
+        try:
+            # Check if input is available (non-blocking)
+            if select.select([sys.stdin], [], [], 0)[0]:
+                key = sys.stdin.read(1)
+                if key.lower() == 'm':
+                    return True
+        except:
+            pass
+        return False
 
     def _display_stats(self):
         """Display current statistics"""
@@ -307,7 +360,7 @@ class NetCutAI:
                 print(colored(f"  • {ip}: ↓{limits['down']}KB/s ↑{limits['up']}KB/s", "yellow"))
         
         # Show instruction for accessing menu
-        print(colored("\n💡 TIP: Press Ctrl+C to access the control menu", "yellow"))
+        print(colored("\n💡 TIP: Press 'm' key to access the control menu (or Ctrl+C to quit)", "yellow"))
 
     def show_menu(self):
         """Interactive menu for manual control"""
@@ -589,6 +642,13 @@ class NetCutAI:
         print(colored("\n[+] Stopping system...", "yellow"))
         self.running = False
         time.sleep(1)  # Allow threads to finish
+        
+        # Restore terminal settings
+        if self.old_terminal_settings:
+            try:
+                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self.old_terminal_settings)
+            except:
+                pass
         
         if self.conn_tracker:
             try:
