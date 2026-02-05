@@ -197,13 +197,33 @@ class NetMindAgent:
             }
         
         try:
-            self.controller.apply_limit(ip, download_kbps, upload_kbps)
+            # Convert to int in case LLM passes strings
+            download_kbps = int(download_kbps)
+            upload_kbps = int(upload_kbps)
+            
+            # Controller returns True/False, not exception
+            result = self.controller.apply_limit(ip, download_kbps, upload_kbps)
+            print(f"[DEBUG] apply_limit returned: {result} (type: {type(result)})")
+            
+            if result is True:
+                return {
+                    'success': True,
+                    'message': f'Applied limit to {ip}: ↓{download_kbps}KB/s ({download_kbps/1024:.1f}Mbps) ↑{upload_kbps}KB/s ({upload_kbps/1024:.1f}Mbps)',
+                    'ip': ip,
+                    'download_kbps': download_kbps,
+                    'upload_kbps': upload_kbps
+                }
+            else:
+                return {
+                    'success': False,
+                    'message': f'Failed to limit {ip} - check console for TC error details',
+                    'ip': ip
+                }
+        except ValueError as e:
             return {
-                'success': True,
-                'message': f'Applied limit to {ip}: ↓{download_kbps}KB/s ({download_kbps/1024:.1f}Mbps) ↑{upload_kbps}KB/s ({upload_kbps/1024:.1f}Mbps)',
-                'ip': ip,
-                'download_kbps': download_kbps,
-                'upload_kbps': upload_kbps
+                'success': False,
+                'message': f'Invalid bandwidth values for {ip}: download={download_kbps}, upload={upload_kbps}',
+                'ip': ip
             }
         except Exception as e:
             return {
@@ -256,13 +276,20 @@ class NetMindAgent:
         
         try:
             # Block by setting extremely low limit (1 KB/s effectively blocks everything)
-            self.controller.apply_limit(ip, 1, 1)
-            return {
-                'success': True,
-                'message': f'Blocked internet access for {ip} (set to 1KB/s)',
-                'ip': ip,
-                'action': 'blocked'
-            }
+            result = self.controller.apply_limit(ip, 1, 1)
+            if result:
+                return {
+                    'success': True,
+                    'message': f'Blocked internet access for {ip} (set to 1KB/s)',
+                    'ip': ip,
+                    'action': 'blocked'
+                }
+            else:
+                return {
+                    'success': False,
+                    'message': f'Failed to block {ip} - check console for TC error details',
+                    'ip': ip
+                }
         except Exception as e:
             return {
                 'success': False,

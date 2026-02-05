@@ -525,7 +525,7 @@ class BandwidthController:
         """Apply bandwidth limit using TC"""
         # Validate input
         if down_kbps <= 0 or up_kbps <= 0:
-            print(colored(f"[!] Invalid bandwidth values for {ip}", "red"))
+            print(colored(f"[!] Invalid bandwidth values for {ip}: down={down_kbps}, up={up_kbps}", "red"))
             return False
         
         # Remove existing limit if present
@@ -540,16 +540,58 @@ class BandwidthController:
         
         try:
             # Upload limiting using TC (traffic FROM device)
-            subprocess.run(f"tc class add dev {self.iface} parent 1: classid 1:{mark} htb rate {up_kbps}kbit burst {burst_up}b", shell=True, check=True, stderr=subprocess.PIPE)
-            subprocess.run(f"tc qdisc add dev {self.iface} parent 1:{mark} handle {mark}: sfq perturb 10", shell=True, check=True, stderr=subprocess.PIPE)
-            subprocess.run(f"tc filter add dev {self.iface} parent 1: protocol ip prio 1 u32 match ip src {ip} flowid 1:{mark}", shell=True, check=True, stderr=subprocess.PIPE)
+            result = subprocess.run(f"tc class add dev {self.iface} parent 1: classid 1:{mark} htb rate {up_kbps}kbit burst {burst_up}b", 
+                                   shell=True, capture_output=True, text=True)
+            if result.returncode != 0:
+                print(colored(f"[!] Failed to add upload class for {ip}: {result.stderr.strip()}", "red"))
+                return False
+                
+            result = subprocess.run(f"tc qdisc add dev {self.iface} parent 1:{mark} handle {mark}: sfq perturb 10", 
+                                   shell=True, capture_output=True, text=True)
+            if result.returncode != 0:
+                print(colored(f"[!] Failed to add upload qdisc for {ip}: {result.stderr.strip()}", "red"))
+                subprocess.run(f"tc class del dev {self.iface} parent 1: classid 1:{mark} 2>/dev/null", shell=True)
+                return False
+                
+            result = subprocess.run(f"tc filter add dev {self.iface} parent 1: protocol ip prio 1 u32 match ip src {ip} flowid 1:{mark}", 
+                                   shell=True, capture_output=True, text=True)
+            if result.returncode != 0:
+                print(colored(f"[!] Failed to add upload filter for {ip}: {result.stderr.strip()}", "red"))
+                subprocess.run(f"tc qdisc del dev {self.iface} parent 1:{mark} 2>/dev/null", shell=True)
+                subprocess.run(f"tc class del dev {self.iface} parent 1: classid 1:{mark} 2>/dev/null", shell=True)
+                return False
             
             # Download limiting using TC (traffic TO device)
             # Use a different mark for download (mark + 200)
             mark_down = str(int(mark) + 200)
-            subprocess.run(f"tc class add dev {self.iface} parent 1: classid 1:{mark_down} htb rate {down_kbps}kbit burst {burst_down}b", shell=True, check=True, stderr=subprocess.PIPE)
-            subprocess.run(f"tc qdisc add dev {self.iface} parent 1:{mark_down} handle {mark_down}: sfq perturb 10", shell=True, check=True, stderr=subprocess.PIPE)
-            subprocess.run(f"tc filter add dev {self.iface} parent 1: protocol ip prio 1 u32 match ip dst {ip} flowid 1:{mark_down}", shell=True, check=True, stderr=subprocess.PIPE)
+            
+            result = subprocess.run(f"tc class add dev {self.iface} parent 1: classid 1:{mark_down} htb rate {down_kbps}kbit burst {burst_down}b", 
+                                   shell=True, capture_output=True, text=True)
+            if result.returncode != 0:
+                print(colored(f"[!] Failed to add download class for {ip}: {result.stderr.strip()}", "red"))
+                # Cleanup upload rules
+                subprocess.run(f"tc qdisc del dev {self.iface} parent 1:{mark} 2>/dev/null", shell=True)
+                subprocess.run(f"tc class del dev {self.iface} parent 1: classid 1:{mark} 2>/dev/null", shell=True)
+                return False
+                
+            result = subprocess.run(f"tc qdisc add dev {self.iface} parent 1:{mark_down} handle {mark_down}: sfq perturb 10", 
+                                   shell=True, capture_output=True, text=True)
+            if result.returncode != 0:
+                print(colored(f"[!] Failed to add download qdisc for {ip}: {result.stderr.strip()}", "red"))
+                subprocess.run(f"tc class del dev {self.iface} parent 1: classid 1:{mark_down} 2>/dev/null", shell=True)
+                subprocess.run(f"tc qdisc del dev {self.iface} parent 1:{mark} 2>/dev/null", shell=True)
+                subprocess.run(f"tc class del dev {self.iface} parent 1: classid 1:{mark} 2>/dev/null", shell=True)
+                return False
+                
+            result = subprocess.run(f"tc filter add dev {self.iface} parent 1: protocol ip prio 1 u32 match ip dst {ip} flowid 1:{mark_down}", 
+                                   shell=True, capture_output=True, text=True)
+            if result.returncode != 0:
+                print(colored(f"[!] Failed to add download filter for {ip}: {result.stderr.strip()}", "red"))
+                subprocess.run(f"tc qdisc del dev {self.iface} parent 1:{mark_down} 2>/dev/null", shell=True)
+                subprocess.run(f"tc class del dev {self.iface} parent 1: classid 1:{mark_down} 2>/dev/null", shell=True)
+                subprocess.run(f"tc qdisc del dev {self.iface} parent 1:{mark} 2>/dev/null", shell=True)
+                subprocess.run(f"tc class del dev {self.iface} parent 1: classid 1:{mark} 2>/dev/null", shell=True)
+                return False
             
             # Mark in iptables for additional control
             subprocess.run(f"iptables -t mangle -I POSTROUTING -s {ip} -j MARK --set-mark {mark}", shell=True, stderr=subprocess.DEVNULL)
@@ -557,9 +599,17 @@ class BandwidthController:
             
             self.limits[ip] = {"down": down_kbps, "up": up_kbps}
             print(colored(f"[✓] Limited {ip}: ↓{down_kbps}KB/s ↑{up_kbps}KB/s", "yellow"))
-            return True
+            print(f"[DEBUG] About to return True from apply_limit - CODE VERSION 2")
+            retval = True
+            print(f"[DEBUG] retval is: {retval} (type: {type(retval)})")
+            return retval
         except subprocess.CalledProcessError as e:
             print(colored(f"[!] Failed to apply limit to {ip}: {e}", "red"))
+            # Cleanup partial rules
+            self.remove_limit(ip)
+            return False
+        except Exception as e:
+            print(colored(f"[!] Unexpected error limiting {ip}: {type(e).__name__}: {e}", "red"))
             # Cleanup partial rules
             self.remove_limit(ip)
             return False
@@ -572,13 +622,22 @@ class BandwidthController:
             
             # Delete upload rules (from device)
             subprocess.run(f"tc qdisc del dev {self.iface} parent 1:{mark} 2>/dev/null", shell=True, stderr=subprocess.DEVNULL)
-            subprocess.run(f"tc filter del dev {self.iface} parent 1: protocol ip prio 1 handle 800::{mark} u32 2>/dev/null", shell=True, stderr=subprocess.DEVNULL)
             subprocess.run(f"tc class del dev {self.iface} parent 1: classid 1:{mark} 2>/dev/null", shell=True, stderr=subprocess.DEVNULL)
             
             # Delete download rules (to device)
             subprocess.run(f"tc qdisc del dev {self.iface} parent 1:{mark_down} 2>/dev/null", shell=True, stderr=subprocess.DEVNULL)
-            subprocess.run(f"tc filter del dev {self.iface} parent 1: protocol ip prio 1 handle 800::{mark_down} u32 2>/dev/null", shell=True, stderr=subprocess.DEVNULL)
             subprocess.run(f"tc class del dev {self.iface} parent 1: classid 1:{mark_down} 2>/dev/null", shell=True, stderr=subprocess.DEVNULL)
+            
+            # Remove ALL filters matching this IP (more thorough cleanup)
+            subprocess.run(f"tc filter del dev {self.iface} parent 1: protocol ip prio 1 2>/dev/null", shell=True, stderr=subprocess.DEVNULL)
+            
+            # Re-add filters for other limited IPs (preserve their limits)
+            for other_ip, limits in self.limits.items():
+                if other_ip != ip:
+                    other_mark = str((hash(other_ip) % 200) + 50)
+                    other_mark_down = str(int(other_mark) + 200)
+                    subprocess.run(f"tc filter add dev {self.iface} parent 1: protocol ip prio 1 u32 match ip src {other_ip} flowid 1:{other_mark}", shell=True, stderr=subprocess.DEVNULL)
+                    subprocess.run(f"tc filter add dev {self.iface} parent 1: protocol ip prio 1 u32 match ip dst {other_ip} flowid 1:{other_mark_down}", shell=True, stderr=subprocess.DEVNULL)
             
             # Remove iptables mangle rules
             subprocess.run(f"iptables -t mangle -D POSTROUTING -s {ip} -j MARK --set-mark {mark} 2>/dev/null", shell=True, stderr=subprocess.DEVNULL)
