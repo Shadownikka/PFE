@@ -8,11 +8,16 @@
 
 - **Automatic Monitoring**: Real-time bandwidth tracking for all connected devices
 - **Activity Tracking**: See what websites/services each device is accessing (YouTube, Netflix, etc.)
+- **🤖 AI Agent Mode (NEW)**: Natural language network control using Ollama + Llama 3.1
+  - "I'm lagging, fix it" - AI analyzes and applies smart limits
+  - Conversational interface with context awareness
+  - See [AGENT_GUIDE.md](AGENT_GUIDE.md) for details
 - **Intelligent Fair Allocation**: AI-driven algorithms prevent bandwidth hogging
 - **Dual Display Modes**: Shows speeds in both KB/s and Mbps for easy comparison
 - **Dual Operation Modes**: 
   - 🤖 **Automatic AI Mode** - Hands-off intelligent management
   - 🎮 **Manual Mode** - User control with AI assistance
+  - 🗣️ **Agentic Mode** - Natural language AI control (requires Ollama)
 - **Four Core Actions**:
   1. **Monitor**: Real-time upload/download speed tracking with activity visibility
   2. **Block**: Complete internet cut-off for a specific device

@@ -1,4 +1,5 @@
 scapy
 netifaces
 termcolor
+ollama
 git+https://github.com/kti/python-netfilterqueue

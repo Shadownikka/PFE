@@ -20,6 +20,7 @@ from tool import (
     TrafficMonitor, BandwidthController, ConnectionTracker
 )
 import scapy.all as scapy
+# Lazy import of NetMindAgent to avoid requiring ollama if not using agent mode
 
 # -------------------------
 # Intelligent Bandwidth Controller
@@ -124,6 +125,7 @@ class NetMindAI:
         self.monitor = None
         self.controller = None
         self.conn_tracker = None  # Connection tracker for activity monitoring
+        self.agent = None  # AI Agent for agentic mode
         self.running = False
         self.old_terminal_settings = None  # Store terminal settings
         
@@ -390,6 +392,7 @@ class NetMindAI:
             print("  [b] Block device completely")
             print("  [u] Unblock device")
             print("  [v] View detailed device activity")
+            print("  [g] 🤖 Go Agentic (Ollama Mode) - AI-powered natural language control")
             print("  [a] Toggle AI Auto-Balance (Currently: " + (colored("ON", "green") if Config.AUTO_LIMIT_ENABLED else colored("OFF", "red")) + ")")
             print("  [s] Show detailed statistics")
             print("  [c] Continue monitoring (return to live view)")
@@ -408,6 +411,8 @@ class NetMindAI:
                 self._manual_unblock()
             elif choice == 'v':
                 self._view_device_activity()
+            elif choice == 'g':
+                self._start_agent_mode()
             elif choice == 'a':
                 Config.AUTO_LIMIT_ENABLED = not Config.AUTO_LIMIT_ENABLED
                 status = colored("ENABLED", "green") if Config.AUTO_LIMIT_ENABLED else colored("DISABLED", "red")
@@ -615,6 +620,86 @@ class NetMindAI:
         except (ValueError, IndexError):
             print(colored("\n[!] Invalid input", "red"))
             time.sleep(2)
+    
+    def _start_agent_mode(self):
+        """Start AI Agent mode with Ollama for natural language control"""
+        os.system('clear')
+        print(colored("="*70, "cyan"))
+        print(colored("🤖 AGENTIC MODE - AI-Powered Network Control", "green", attrs=["bold"]))
+        print(colored("="*70, "cyan"))
+        
+        # Initialize agent if not already done
+        if not self.agent:
+            print(colored("\n[+] Initializing NetMind AI Agent with Ollama...", "cyan"))
+            try:
+                # Lazy import - only import when actually using agent mode
+                from net_agent import NetMindAgent
+                
+                self.agent = NetMindAgent(self.monitor, self.controller, Config)
+                
+                # Set protected IPs (safety guard)
+                import netifaces
+                host_ip = netifaces.ifaddresses(self.iface)[netifaces.AF_INET][0]['addr']
+                self.agent.set_protected_ips(self.gateway_ip, host_ip)
+                
+                print(colored("[✓] Agent initialized successfully!", "green"))
+            except ModuleNotFoundError as e:
+                if 'ollama' in str(e):
+                    print(colored(f"\n[!] Error: Ollama library not installed", "red"))
+                    print(colored("\n💡 To install:", "yellow"))
+                    print("   pip3 install ollama --break-system-packages")
+                    print("\nOr see AGENT_GUIDE.md for full setup instructions")
+                else:
+                    print(colored(f"\n[!] Error: {e}", "red"))
+                input(colored("\nPress Enter to continue...", "cyan"))
+                return
+            except Exception as e:
+                print(colored(f"\n[!] Error initializing agent: {e}", "red"))
+                print(colored("Make sure Ollama is running: ollama serve", "yellow"))
+                input(colored("\nPress Enter to continue...", "cyan"))
+                return
+        
+        print(colored("\n📚 How to use:", "yellow"))
+        print("  • Type natural language commands like:")
+        print("    - 'I'm lagging, fix it'")
+        print("    - 'Who is using the most bandwidth?'")
+        print("    - 'Limit the device using the most data to 2 Mbps'")
+        print("    - 'Show me current network stats'")
+        print("    - 'Remove all limits'")
+        print(colored("\n⌨️  Special commands:", "yellow"))
+        print("  • Type 'reset' to clear conversation history")
+        print("  • Type 'menu' or 'back' or 'exit' or just 'q' to return to menu")
+        print("  • Press Ctrl+C to return to menu")
+        
+        print(colored("\n" + "="*70, "cyan"))
+        
+        # Agent conversation loop
+        while True:
+            try:
+                user_input = input(colored("\n💬 You: ", "green")).strip()
+                
+                if not user_input:
+                    continue
+                
+                if user_input.lower() in ['back', 'exit', 'quit', 'q', 'menu']:
+                    print(colored("\n[+] Returning to menu...", "cyan"))
+                    time.sleep(0.5)
+                    break
+                
+                if user_input.lower() == 'reset':
+                    self.agent.reset_conversation()
+                    continue
+                
+                # Get agent response
+                response = self.agent.chat(user_input)
+                print(colored(f"\n🤖 NetMind: ", "cyan") + response)
+                
+            except KeyboardInterrupt:
+                print(colored("\n\n[+] Returning to menu...", "cyan"))
+                time.sleep(0.5)
+                break
+            except Exception as e:
+                print(colored(f"\n[!] Error: {e}", "red"))
     
     def _show_detailed_stats(self):
         """Show detailed statistics for all devices"""
