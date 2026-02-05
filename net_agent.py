@@ -88,6 +88,40 @@ class NetMindAgent:
                         'required': ['ip']
                     }
                 }
+            },
+            {
+                'type': 'function',
+                'function': {
+                    'name': 'block_device',
+                    'description': 'Completely block internet access for a specific device IP address. Use this when user wants to completely cut off a device from internet.',
+                    'parameters': {
+                        'type': 'object',
+                        'properties': {
+                            'ip': {
+                                'type': 'string',
+                                'description': 'The IP address of the device to block (e.g., "192.168.1.50")'
+                            }
+                        },
+                        'required': ['ip']
+                    }
+                }
+            },
+            {
+                'type': 'function',
+                'function': {
+                    'name': 'unblock_device',
+                    'description': 'Restore internet access for a previously blocked device IP address. Use this to unblock a device.',
+                    'parameters': {
+                        'type': 'object',
+                        'properties': {
+                            'ip': {
+                                'type': 'string',
+                                'description': 'The IP address of the device to unblock (e.g., "192.168.1.50")'
+                            }
+                        },
+                        'required': ['ip']
+                    }
+                }
             }
         ]
     
@@ -121,14 +155,18 @@ class NetMindAgent:
             }
             
             for ip, data in stats.items():
+                # TrafficMonitor returns 'up' and 'down' keys, not 'upload_kbps' and 'download_kbps'
+                up_kbps = data.get('up', 0)
+                down_kbps = data.get('down', 0)
+                
                 device_info = {
                     'ip': ip,
-                    'upload_kbps': round(data.get('upload_kbps', 0), 2),
-                    'download_kbps': round(data.get('download_kbps', 0), 2),
-                    'upload_mbps': round(data.get('upload_kbps', 0) / 1024, 2),
-                    'download_mbps': round(data.get('download_kbps', 0) / 1024, 2),
-                    'status': data.get('status', 'UNKNOWN'),
-                    'is_limited': data.get('is_limited', False),
+                    'upload_kbps': round(up_kbps, 2),
+                    'download_kbps': round(down_kbps, 2),
+                    'upload_mbps': round(up_kbps / 1024, 2),
+                    'download_mbps': round(down_kbps / 1024, 2),
+                    'is_active': up_kbps > 1 or down_kbps > 1,  # Consider active if > 1 KB/s
+                    'is_limited': ip in self.controller.limits if hasattr(self.controller, 'limits') else False,
                     'is_protected': ip in self.protected_ips
                 }
                 formatted_stats['devices'].append(device_info)
@@ -198,6 +236,65 @@ class NetMindAgent:
                 'ip': ip
             }
     
+    def block_device(self, ip):
+        """
+        Tool function: Completely block internet access for a device
+        
+        Args:
+            ip: Device IP address
+            
+        Returns:
+            dict: Result of the operation
+        """
+        # Safety guard: Never block protected IPs
+        if ip in self.protected_ips:
+            return {
+                'success': False,
+                'message': f'Cannot block {ip} - it is a protected IP (gateway or host)',
+                'ip': ip
+            }
+        
+        try:
+            # Block by setting extremely low limit (1 KB/s effectively blocks everything)
+            self.controller.apply_limit(ip, 1, 1)
+            return {
+                'success': True,
+                'message': f'Blocked internet access for {ip} (set to 1KB/s)',
+                'ip': ip,
+                'action': 'blocked'
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'message': f'Failed to block {ip}: {str(e)}',
+                'ip': ip
+            }
+    
+    def unblock_device(self, ip):
+        """
+        Tool function: Restore internet access for a blocked device
+        
+        Args:
+            ip: Device IP address
+            
+        Returns:
+            dict: Result of the operation
+        """
+        try:
+            self.controller.remove_limit(ip)
+            return {
+                'success': True,
+                'message': f'Unblocked {ip} - restored full internet access',
+                'ip': ip,
+                'action': 'unblocked'
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'message': f'Failed to unblock {ip}: {str(e)}',
+                'ip': ip
+            }
+    
     def execute_function(self, name, arguments):
         """
         Execute a function call from the LLM
@@ -221,6 +318,14 @@ class NetMindAgent:
         elif name == 'remove_limit':
             ip = arguments.get('ip')
             return self.remove_limit(ip)
+        
+        elif name == 'block_device':
+            ip = arguments.get('ip')
+            return self.block_device(ip)
+        
+        elif name == 'unblock_device':
+            ip = arguments.get('ip')
+            return self.unblock_device(ip)
         
         else:
             return {'error': f'Unknown function: {name}'}
@@ -252,14 +357,30 @@ Your role:
 
 Guidelines:
 - When user reports lag/issues, ALWAYS check network stats first using get_network_stats
-- Look for devices using excessive bandwidth (high MB/s values)
-- Apply reasonable limits (e.g., 2-5 Mbps for normal browsing, 1-2 Mbps for background devices)
+- Look for devices using excessive bandwidth (high KB/s or Mbps values)
+- A device is considered active if upload_kbps > 1 or download_kbps > 1
+- Apply reasonable limits (e.g., 2048-5120 KB/s for normal browsing, 1024 KB/s for background devices)
+- To BLOCK a device completely, use block_device tool (NOT enforce_limit with 0/0)
+- To LIMIT bandwidth, use enforce_limit with reasonable values (minimum 64 KB/s)
 - NEVER limit gateway or protected IPs
 - Be conversational and helpful
 - Explain what you're doing and why
 
-Convert KB/s to Mbps by dividing by 1024 (e.g., 2048 KB/s = 2 Mbps).
-Typical limits: Light usage 512KB/s (0.5Mbps), Normal 2048KB/s (2Mbps), Heavy 5120KB/s (5Mbps)."""
+Speed conversions:
+- 1024 KB/s = 1 MB/s = 8 Mbps
+- Typical limits: 
+  * Light usage: 512 KB/s (0.5 MB/s, 4 Mbps)
+  * Normal browsing: 2048 KB/s (2 MB/s, 16 Mbps)
+  * Heavy usage: 5120 KB/s (5 MB/s, 40 Mbps)
+
+Available tools:
+- get_network_stats: Check current bandwidth usage
+- enforce_limit: Set bandwidth limits (use reasonable values, NOT 0)
+- remove_limit: Remove limits, restore full speed
+- block_device: Completely block internet (use this for blocking, not 0/0)
+- unblock_device: Restore internet access
+
+Remember: NEVER use enforce_limit with 0 values. Use block_device instead!"""
 
         messages = [
             {'role': 'system', 'content': system_prompt}
