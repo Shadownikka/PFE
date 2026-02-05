@@ -19,7 +19,7 @@ def main():
 ║                                                              ║
 ║         🤖 NetMind - Intelligent Bandwidth Manager 🤖        ║
 ║                                                              ║
-║  Automatic • Adaptive • Fair • Machine Learning-Based       ║
+║  Automatic • Adaptive • Fair • Machine Learning-Based        ║
 ║                 + Manual Control Mode                        ║
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
