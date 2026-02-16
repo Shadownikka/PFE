@@ -215,9 +215,15 @@ class NetMindAI:
             print(colored("\n   Monitor will start showing data once devices use internet.\n", "cyan"))
         
         self.running = True
-        self._display_loop()
+        result = self._display_loop()
         
-        # After monitoring loop ends, show menu if in manual mode
+        # If user chose an option from the menu during monitoring, return it directly
+        if result == 'main_menu':
+            return 'main_menu'
+        elif result:
+            return True  # Quit
+        
+        # Only show menu again if monitoring ended naturally (not from menu choice)
         if self.mode == 'manual':
             while True:
                 result = self.show_menu()
@@ -372,6 +378,12 @@ class NetMindAI:
         """Interactive menu for manual control"""
         self.running = False
         time.sleep(0.5)
+        
+        # Flush any buffered input before showing menu
+        try:
+            termios.tcflush(sys.stdin, termios.TCIFLUSH)
+        except:
+            pass
         
         while True:
             os.system('clear')

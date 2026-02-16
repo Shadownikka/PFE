@@ -277,7 +277,9 @@ class NetMindAgent:
         try:
             # Block by setting extremely low limit (1 KB/s effectively blocks everything)
             result = self.controller.apply_limit(ip, 1, 1)
-            if result:
+            
+            # Check if the IP is now in limits (successful)
+            if ip in self.controller.limits or result is True or result:
                 return {
                     'success': True,
                     'message': f'Blocked internet access for {ip} (set to 1KB/s)',
@@ -373,54 +375,50 @@ class NetMindAgent:
             'content': user_message
         })
         
-        # System prompt to guide the agent
-        system_prompt = """You are NetMind, an intelligent network bandwidth management assistant. 
+        # Optimized shorter system prompt for faster responses
+        system_prompt = """You are NetMind, a network bandwidth manager. Be brief and direct.
 
-Your role:
-- Analyze network statistics when users report issues
-- Make smart decisions about bandwidth limiting
-- Help users optimize their network performance
-- Always explain your reasoning and actions
+Rules:
+- Check stats first: use get_network_stats
+- Active device: upload/download > 1 kbps
+- Typical limits: 512-5120 KB/s
+- NEVER limit gateway/protected IPs
+- Use block_device to block (NOT enforce_limit with 0)
 
-Guidelines:
-- When user reports lag/issues, ALWAYS check network stats first using get_network_stats
-- Look for devices using excessive bandwidth (high KB/s or Mbps values)
-- A device is considered active if upload_kbps > 1 or download_kbps > 1
-- Apply reasonable limits (e.g., 2048-5120 KB/s for normal browsing, 1024 KB/s for background devices)
-- To BLOCK a device completely, use block_device tool (NOT enforce_limit with 0/0)
-- To LIMIT bandwidth, use enforce_limit with reasonable values (minimum 64 KB/s)
-- NEVER limit gateway or protected IPs
-- Be conversational and helpful
-- Explain what you're doing and why
+IMPORTANT INSTRUCTIONS:
+1. READ USER REQUEST CAREFULLY - pay attention to "except", "but", "only", "all but", "everyone except"
+2. "Block everyone except X" = block ALL devices EXCEPT device X (keep X unblocked)
+3. "Block all but X" = block ALL devices EXCEPT device X (keep X unblocked)
+4. "Block only X" = block ONLY device X (block just that one device)
+5. When a function executes, state what you DID (past tense), NOT what you could do
+6. Double-check your logic before executing - if user says "except", that device should NOT be blocked
 
-Speed conversions:
-- 1024 KB/s = 1 MB/s = 8 Mbps
-- Typical limits: 
-  * Light usage: 512 KB/s (0.5 MB/s, 4 Mbps)
-  * Normal browsing: 2048 KB/s (2 MB/s, 16 Mbps)
-  * Heavy usage: 5120 KB/s (5 MB/s, 40 Mbps)
+Example correct logic:
+User: "Block everyone except 192.168.1.5"
+Correct action: Block all IPs EXCEPT 192.168.1.5 (leave 192.168.1.5 normal)
+Wrong action: Block 192.168.1.5 (this is the OPPOSITE of what was requested!)"""
 
-Available tools:
-- get_network_stats: Check current bandwidth usage
-- enforce_limit: Set bandwidth limits (use reasonable values, NOT 0)
-- remove_limit: Remove limits, restore full speed
-- block_device: Completely block internet (use this for blocking, not 0/0)
-- unblock_device: Restore internet access
-
-Remember: NEVER use enforce_limit with 0 values. Use block_device instead!"""
-
+        # Keep only last 6 messages for speed (3 exchanges)
+        recent_history = self.conversation_history[-6:] if len(self.conversation_history) > 6 else self.conversation_history
+        
         messages = [
             {'role': 'system', 'content': system_prompt}
-        ] + self.conversation_history
+        ] + recent_history
         
         try:
             print(colored("\n[Agent] Thinking...", "cyan"))
             
-            # Call Ollama with tools
+            # Call Ollama with tools (optimized for speed)
             response = self.client.chat(
                 model=self.model,
                 messages=messages,
-                tools=self.tools
+                tools=self.tools,
+                options={
+                    'temperature': 0.3,  # Lower = faster, more deterministic
+                    'num_predict': 200,  # Limit response length
+                    'top_k': 10,  # Faster token selection
+                    'top_p': 0.9,
+                }
             )
             
             # Handle tool calls
@@ -454,7 +452,13 @@ Remember: NEVER use enforce_limit with 0 values. Use block_device instead!"""
                 response = self.client.chat(
                     model=self.model,
                     messages=messages,
-                    tools=self.tools
+                    tools=self.tools,
+                    options={
+                        'temperature': 0.3,
+                        'num_predict': 200,
+                        'top_k': 10,
+                        'top_p': 0.9,
+                    }
                 )
             
             # Add final assistant response to history
