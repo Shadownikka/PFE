@@ -76,7 +76,7 @@ Since you're on Kali Linux with externally-managed Python, you need a virtual en
 ### 2.1 Navigate to the Interface Folder
 
 ```bash
-cd /home/mahdi/Documents/NetMind/NetMind_Interface
+cd ~/NetMind/NetMind_Interface
 ```
 
 ### 2.2 Create Virtual Environment
@@ -130,7 +130,7 @@ You should see: `Ollama is running`
 which python3
 ```
 
-Should show: `/home/mahdi/Documents/NetMind/NetMind_Interface/venv/bin/python3`
+Should show: `/home/"the placement"/"of the project"/NetMind/NetMind_Interface/venv/bin/python3`
 
 ### 3.3 Check Python Packages
 
@@ -149,7 +149,7 @@ The backend MUST run with sudo because it needs root privileges for network oper
 
 ```bash
 # Make sure you're in the NetMind_Interface folder
-cd /home/mahdi/Documents/NetMind/NetMind_Interface
+cd ~/NetMind/NetMind_Interface
 
 # Run the automated start script
 sudo ./start.sh
@@ -170,7 +170,7 @@ The script will:
 ollama serve
 
 # In another terminal, navigate to the folder
-cd /home/mahdi/Documents/NetMind/NetMind_Interface
+cd ~/NetMind/NetMind_Interface
 
 # Activate the virtual environment
 source venv/bin/activate
@@ -204,20 +204,20 @@ You have two options:
 
 ```bash
 # Open in Firefox
-firefox /home/mahdi/Documents/NetMind/NetMind_Interface/index.html
+firefox ~/NetMind/NetMind_Interface/index.html
 
 # OR open in Chrome/Chromium
-google-chrome /home/mahdi/Documents/NetMind/NetMind_Interface/index.html
+google-chrome ~/NetMind/NetMind_Interface/index.html
 
 # OR use default browser
-xdg-open /home/mahdi/Documents/NetMind/NetMind_Interface/index.html
+xdg-open ~/NetMind/NetMind_Interface/index.html
 ```
 
 ### Option B: Using HTTP Server (Better for Development)
 
 ```bash
 # In a NEW terminal (don't close the backend!)
-cd /home/mahdi/Documents/NetMind/NetMind_Interface
+cd ~/NetMind/NetMind_Interface
 
 # Start a simple HTTP server
 python3 -m http.server 8080
@@ -413,11 +413,11 @@ sudo venv/bin/python3 backend.py
 ollama serve
 
 # Terminal 2: Start Backend
-cd /home/mahdi/Documents/NetMind/NetMind_Interface
+cd ~/NetMind/NetMind_Interface
 sudo ./start.sh
 
 # Terminal 3 (Optional): Start HTTP Server for Frontend
-cd /home/mahdi/Documents/NetMind/NetMind_Interface
+cd ~/NetMind/NetMind_Interface
 python3 -m http.server 8080
 
 # Browser: Open http://localhost:8080
