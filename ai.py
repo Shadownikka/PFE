@@ -30,6 +30,8 @@ class IntelligentController:
         self.iface = iface
         self.monitor = monitor
         self.controller = BandwidthController(iface, monitor)
+        self.limit_timers = {}  # Track when limits were applied
+        self.MIN_LIMIT_DURATION = 60  # Minimum seconds before removing a limit
 
     def set_gateway(self, gateway):
         """Set gateway for ARP spoofing"""
@@ -41,11 +43,18 @@ class IntelligentController:
 
     def apply_limit(self, ip, down_kbps, up_kbps):
         """Apply bandwidth limit"""
-        self.controller.apply_limit(ip, down_kbps, up_kbps)
+        result = self.controller.apply_limit(ip, down_kbps, up_kbps)
+        if result:
+            # Track when this limit was applied
+            self.limit_timers[ip] = time.time()
+        return result
 
     def remove_limit(self, ip):
         """Remove bandwidth limit"""
         self.controller.remove_limit(ip)
+        # Clean up the timer entry
+        if ip in self.limit_timers:
+            del self.limit_timers[ip]
 
     def auto_balance(self):
         """Intelligent auto-balancing algorithm"""
@@ -87,6 +96,13 @@ class IntelligentController:
             else:
                 # Remove limit if usage normalized
                 if ip in self.controller.limits and avg_usage["down"] < Config.BANDWIDTH_ABUSE_THRESHOLD * 0.5:
+                    # Check if enough time has passed since limit was applied (anti-flapping)
+                    if ip in self.limit_timers:
+                        time_since_limit = time.time() - self.limit_timers[ip]
+                        if time_since_limit < self.MIN_LIMIT_DURATION:
+                            # Don't remove yet - prevent flapping
+                            continue
+                    
                     print(colored(f"\n[AI] Device {ip} usage normalized. Removing limits.", "green"))
                     self.remove_limit(ip)
 
