@@ -10,7 +10,7 @@ import os
 # Add parent directory to path to import tool and agent modules
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 import threading
 import time
@@ -102,6 +102,11 @@ def monitoring_loop():
 # -------------------------
 # API Routes
 # -------------------------
+
+@app.route('/')
+def index():
+    """Serve the main HTML page"""
+    return send_file(os.path.join(os.path.dirname(__file__), 'index.html'))
 
 @app.route('/api/status', methods=['GET'])
 def get_status():
@@ -514,21 +519,10 @@ if __name__ == '__main__':
         print("\n⚠️  WARNING: Root privileges required for network operations")
         print("   Please run with: sudo python3 backend.py\n")
     
+    print("[+] Starting NetMind backend server on port 9000...")
+    
     # Run Flask server
-    app.run(host='0.0.0.0', port=5000, debug=True, threaded=True)
-
-        print("[+] ARP spoofing active - intercepting traffic")
-    
-    # Start connection tracker
-    if tracker:
-        tracker.start()
-        print("[+] Connection tracker started")
-    
-    is_monitoring = True
-    monitor_thread = threading.Thread(target=monitoring_loop, daemon=True)
-    monitor_thread.start()
-    
-    return jsonify({"success": True, "message": "Monitoring started"})
+    app.run(host='0.0.0.0', port=9000, debug=True, threaded=True)
 
 @app.route('/api/stop-monitoring', methods=['POST'])
 def stop_monitoring():
@@ -721,4 +715,4 @@ if __name__ == '__main__':
         print("   Please run with: sudo python3 backend.py\n")
     
     # Run Flask server
-    app.run(host='0.0.0.0', port=5000, debug=True, threaded=True)
+    app.run(host='0.0.0.0', port=9000, debug=True, threaded=True)
