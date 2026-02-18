@@ -208,6 +208,9 @@ class NetMindAI:
         self.conn_tracker.start()
         print(colored("  ✓ Tracking device activity", "green"))
         
+        # Track last device scan time for dynamic discovery
+        self.last_device_scan = time.time()
+        
         # Start ARP spoofing for all devices
         print(colored("\n[+] Starting ARP spoofing for all devices...", "cyan"))
         for ip, info in self.devices.items():
@@ -264,6 +267,12 @@ class NetMindAI:
                 time.sleep(Config.MONITOR_INTERVAL)
                 iteration += 1
                 
+                # Check for new devices every 30 seconds
+                current_time = time.time()
+                if current_time - self.last_device_scan >= 30:
+                    self._scan_for_new_devices()
+                    self.last_device_scan = current_time
+                
                 # Auto-balance if enabled
                 if Config.AUTO_LIMIT_ENABLED and iteration % 3 == 0:
                     self.controller.auto_balance()
@@ -315,6 +324,36 @@ class NetMindAI:
         except:
             pass
         return False
+    
+    def _scan_for_new_devices(self):
+        """Scan for new devices on the network and add them dynamically"""
+        try:
+            clients = discover_clients(self.subnet)
+            
+            for client in clients:
+                ip = client['ip']
+                mac = client['mac']
+                
+                # Skip gateway and already known devices
+                if ip == self.gateway_ip or ip in self.devices:
+                    continue
+                
+                # Add new device
+                self.devices[ip] = {"mac": mac, "name": f"Device-{ip.split('.')[-1]}"}
+                
+                # Add to traffic monitor
+                if self.monitor and self.monitor.running:
+                    self.monitor.devices[ip] = {'mac': mac}
+                    self.monitor.stats[ip] = {'up': 0, 'down': 0, 'total_up': 0, 'total_down': 0}
+                
+                # Start ARP spoofing for new device
+                if self.controller:
+                    try:
+                        self.controller.start_spoofing({"ip": ip, "mac": mac})
+                    except Exception as e:
+                        pass  # Silent fail to not disrupt display
+        except Exception as e:
+            pass  # Silent fail to not disrupt monitoring
 
     def _display_stats(self):
         """Display current statistics"""
@@ -329,7 +368,7 @@ class NetMindAI:
         
         print(colored("\n📊 REAL-TIME BANDWIDTH USAGE & ACTIVITY:", "yellow", attrs=["bold"]))
         print(colored("-" * 110, "white"))
-        print(f"{'IP Address':<15} {'↑ Upload':<20} {'↓ Download':<20} {'Status':<15} {'Activity':<40}")
+        print(f"{'IP Address':<15} {'↑ Upload':<15} {'↓ Download':<15} {'Status':<12} {'Activity':<38}")
         print(colored("-" * 110, "white"))
         
         total_up = 0
@@ -347,8 +386,8 @@ class NetMindAI:
             up_mbps = usage['up'] * 8 / 1000
             down_mbps = usage['down'] * 8 / 1000
             
-            up_str = f"{usage['up']:>6.1f}KB/s ({up_mbps:>4.1f}Mbps)"
-            down_str = f"{usage['down']:>6.1f}KB/s ({down_mbps:>4.1f}Mbps)"
+            up_str = f"{usage['up']:>5.1f}KB/s {up_mbps:>3.1f}M"
+            down_str = f"{usage['down']:>5.1f}KB/s {down_mbps:>3.1f}M"
             
             # Get activity summary
             if self.conn_tracker:
@@ -371,15 +410,15 @@ class NetMindAI:
                 status = colored("⚪ IDLE", "white")
                 color = "white"
             
-            print(colored(f"{ip:<15} {up_str:<20} {down_str:<20} {status:<15} {activity:<40}", color))
+            print(colored(f"{ip:<15} {up_str:<15} {down_str:<15} {status:<12} {activity:<38}", color))
         
         print(colored("-" * 110, "white"))
         # Total with Mbps conversion
         total_up_mbps = total_up * 8 / 1000
         total_down_mbps = total_down * 8 / 1000
-        total_up_str = f"{total_up:.1f}KB/s ({total_up_mbps:.1f}Mbps)"
-        total_down_str = f"{total_down:.1f}KB/s ({total_down_mbps:.1f}Mbps)"
-        print(colored(f"{'TOTAL':<15} {total_up_str:<20} {total_down_str:<20}", "cyan", attrs=["bold"]))
+        total_up_str = f"{total_up:>5.1f}KB/s {total_up_mbps:>3.1f}M"
+        total_down_str = f"{total_down:>5.1f}KB/s {total_down_mbps:>3.1f}M"
+        print(colored(f"{'TOTAL':<15} {total_up_str:<15} {total_down_str:<15}", "cyan", attrs=["bold"]))
         
         # Show active limits
         if self.controller.limits:
