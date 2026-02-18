@@ -4,6 +4,10 @@
 
 **NetMind** is an advanced, machine learning-powered bandwidth management system designed for Linux-based networks (Kali Linux, Ubuntu, etc.). It automatically monitors and intelligently manages network traffic to ensure fair and efficient bandwidth allocation across all connected devices.
 
+## 🐳 Docker Deployment
+
+NetMind now supports containerized deployment using Docker for easy setup and portability.
+
 ### Core Features
 
 - **Automatic Monitoring**: Real-time bandwidth tracking for all connected devices
@@ -95,19 +99,28 @@
 
 ```
 NetMind/
-├── NetMind.py          # Main entry point (combines tool and AI)
-├── tool.py             # Core networking tool module
-│                       #  - ARP spoofing
-│                       #  - Traffic monitoring
-│                       #  - Bandwidth control
-├── ai.py               # AI engine module
-│                       #  - Intelligent bandwidth controller
-│                       #  - Auto-balancing algorithm
-│                       #  - Interactive menu system
-├── README.md           # This file
-├── Setup.py            # Installation script
-├── Dependance.txt      # Required dependencies
-└── requirements.txt    # Python package requirements
+├── NetMind.py              # Main entry point (terminal interface)
+├── tool.py                 # Core networking tool module
+│                           #  - ARP spoofing
+│                           #  - Traffic monitoring
+│                           #  - Bandwidth control
+├── ai.py                   # AI engine module
+│                           #  - Intelligent bandwidth controller
+│                           #  - Auto-balancing algorithm
+├── net_agent.py            # AI agent for natural language control
+├── test_agent.py           # Agent testing utilities
+├── requirements.txt        # Python package requirements
+├── Setup.py                # Installation script
+├── Dockerfile              # Docker container configuration
+├── docker-compose.yml      # Docker Compose setup
+├── .dockerignore           # Docker build exclusions
+├── NetMind_Interface/      # Web interface
+│   ├── backend.py          # Flask REST API server
+│   ├── index.html          # Web UI
+│   ├── requirements.txt    # Interface dependencies
+│   ├── launch_interface.sh # Quick launcher script
+│   └── README.md           # Interface documentation
+└── README.md               # This file
 ```
 
 ---
@@ -141,7 +154,80 @@ Implements intelligent management:
 
 ## ⚙️ Installation & Setup
 
-### Prerequisites
+### Option 1: Docker (Recommended)
+
+#### Prerequisites
+- Docker and Docker Compose installed on your Linux system
+- Root/sudo privileges
+
+#### Quick Start with Docker
+
+1. **Clone the repository**
+```bash
+git clone https://github.com/yourusername/NetMind.git
+cd NetMind
+```
+
+2. **Build and run the container**
+```bash
+docker-compose up --build -d
+```
+
+3. **Access the container**
+```bash
+docker exec -it netmind-app bash
+```
+
+4. **Start the interface**
+```bash
+cd NetMind_Interface
+python3 -m http.server 9001 &
+python backend.py
+```
+
+5. **Access the web interface**
+Open your browser and navigate to:
+```
+http://localhost:9001/index.html
+```
+
+The web interface will connect to the backend API running on port 9000.
+
+#### Docker Configuration
+
+The Docker setup includes:
+- **Dockerfile**: Builds the container with all dependencies
+  - Python 3.11
+  - Network tools (tcpdump, iptables, iproute2, libpcap)
+  - All Python dependencies
+  
+- **docker-compose.yml**: Configures the container
+  - Host networking mode for direct network access
+  - Privileged mode with NET_ADMIN and NET_RAW capabilities
+  - Volume mount for live code updates
+  - Ports 9000 (backend API) and 9001 (web interface)
+
+#### Managing the Container
+
+**Stop the container:**
+```bash
+docker-compose down
+```
+
+**View logs:**
+```bash
+docker-compose logs -f
+```
+
+**Rebuild after changes:**
+```bash
+docker-compose down
+docker-compose up --build -d
+```
+
+### Option 2: Native Installation
+
+#### Prerequisites
 
 ```bash
 # Ensure you're on Linux with sudo privileges
@@ -174,7 +260,32 @@ sudo apt-get install -y iptables iproute2 scapy
 
 ## 🚀 Usage
 
-### Basic Launch
+### Web Interface (Docker)
+
+1. **Start the container and backend**
+```bash
+docker-compose up -d
+docker exec -it netmind-app bash
+cd NetMind_Interface
+python3 -m http.server 9001 &
+python backend.py
+```
+
+2. **Open the web interface**
+   - Navigate to `http://localhost:9001/index.html`
+
+3. **Initialize the system**
+   - Click "Initialize" button in the interface
+   - Click "Start Monitoring" to begin traffic capture
+
+4. **Monitor devices**
+   - View real-time bandwidth usage
+   - See what websites/services each device is accessing
+   - Apply bandwidth limits or blocks through the UI
+
+### Command Line (Native)
+
+#### Basic Launch
 
 ```bash
 sudo python3 NetMind.py
