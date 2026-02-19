@@ -31,6 +31,7 @@ class IntelligentController:
         self.monitor = monitor
         self.controller = BandwidthController(iface, monitor)
         self.limit_timers = {}  # Track when limits were applied
+        self.manual_locks = set()  # Track IPs with manual limits - AI must not remove these
         self.MIN_LIMIT_DURATION = 60  # Minimum seconds before removing a limit
 
     def set_gateway(self, gateway):
@@ -55,6 +56,9 @@ class IntelligentController:
         # Clean up the timer entry
         if ip in self.limit_timers:
             del self.limit_timers[ip]
+        # Remove manual lock if present
+        if ip in self.manual_locks:
+            self.manual_locks.discard(ip)
 
     def auto_balance(self):
         """Intelligent auto-balancing algorithm"""
@@ -96,6 +100,10 @@ class IntelligentController:
             else:
                 # Remove limit if usage normalized
                 if ip in self.controller.limits and avg_usage["down"] < Config.BANDWIDTH_ABUSE_THRESHOLD * 0.5:
+                    # NEVER remove manually applied limits
+                    if ip in self.manual_locks:
+                        continue  # Skip - this is a manual limit, AI must not touch it
+                    
                     # Check if enough time has passed since limit was applied (anti-flapping)
                     if ip in self.limit_timers:
                         time_since_limit = time.time() - self.limit_timers[ip]
@@ -401,8 +409,14 @@ class NetMindAI:
             
             # Status
             if ip in self.controller.limits:
-                status = colored("🔴 LIMITED", "red")
-                color = "red"
+                limits = self.controller.limits[ip]
+                # Check if blocked (limit <= 1 KB/s)
+                if limits['down'] <= 1 and limits['up'] <= 1:
+                    status = colored("⛔ BLOCKED", "red", attrs=["bold"])
+                    color = "red"
+                else:
+                    status = colored("🔴 LIMITED", "red")
+                    color = "red"
             elif usage['down'] > 100 or usage['up'] > 100:
                 status = colored("🟢 ACTIVE", "green")
                 color = "green"
@@ -450,7 +464,15 @@ class NetMindAI:
             ip_list = list(self.devices.keys())
             for i, (ip, info) in enumerate(self.devices.items(), 1):
                 stats = self.monitor.get_current_stats().get(ip, {"up": 0, "down": 0})
-                status = "🔴 LIMITED" if ip in self.controller.limits else "🟢 ACTIVE" if stats['down'] > 10 else "⚪ IDLE"
+                if ip in self.controller.limits:
+                    limits = self.controller.limits[ip]
+                    # Check if blocked (limit <= 1 KB/s)
+                    if limits['down'] <= 1 and limits['up'] <= 1:
+                        status = "⛔ BLOCKED"
+                    else:
+                        status = "🔴 LIMITED"
+                else:
+                    status = "🟢 ACTIVE" if stats['down'] > 10 else "⚪ IDLE"
                 print(f"  [{i}] {ip:<15} {info['mac']:<18} {status}")
             
             print(colored("\n⚙️  ACTIONS:", "yellow"))
@@ -552,6 +574,8 @@ class NetMindAI:
                     return
             
             self.controller.apply_limit(ip, down, up)
+            # Mark this IP as manually limited - AI must not remove this
+            self.controller.manual_locks.add(ip)
             print(colored(f"\n✓ Limit applied: {ip} → ↓{down}KB/s ↑{up}KB/s", "green"))
             time.sleep(2)
         except (ValueError, IndexError) as e:
@@ -604,6 +628,8 @@ class NetMindAI:
             ip = ip_list[idx]
             # Block by setting limit to 1 KB/s (effectively blocking)
             self.controller.apply_limit(ip, 1, 1)
+            # Mark this IP as manually limited - AI must not remove this
+            self.controller.manual_locks.add(ip)
             print(colored(f"\n✓ Device {ip} BLOCKED", "red"))
             time.sleep(2)
         except (ValueError, IndexError):
@@ -789,7 +815,11 @@ class NetMindAI:
             
             if ip in self.controller.limits:
                 limits = self.controller.limits[ip]
-                print(colored(f"  Status:      🔴 LIMITED (↓{limits['down']}KB/s ↑{limits['up']}KB/s)", "red"))
+                # Check if blocked (limit <= 1 KB/s)
+                if limits['down'] <= 1 and limits['up'] <= 1:
+                    print(colored(f"  Status:      ⛔ BLOCKED", "red", attrs=["bold"]))
+                else:
+                    print(colored(f"  Status:      🔴 LIMITED (↓{limits['down']}KB/s ↑{limits['up']}KB/s)", "red"))
             else:
                 print(colored(f"  Status:      🟢 UNLIMITED", "green"))
         
