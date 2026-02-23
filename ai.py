@@ -202,6 +202,12 @@ class NetMindAI:
         subprocess.run("iptables -F FORWARD", shell=True)
         subprocess.run("iptables -t mangle -F", shell=True)
         
+        # CRITICAL: Add ACCEPT rules for forwarding to prevent network cutoff
+        print(colored("[+] Setting up packet forwarding rules...", "cyan"))
+        subprocess.run("iptables -P FORWARD ACCEPT", shell=True)  # Default policy ACCEPT
+        subprocess.run("iptables -A FORWARD -j ACCEPT", shell=True)  # Accept all forwarded packets
+        print(colored("  ✓ Forwarding rules configured", "green"))
+        
         # Start monitoring
         self.monitor = TrafficMonitor(self.devices)
         self.monitor.start()
