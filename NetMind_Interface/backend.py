@@ -14,6 +14,7 @@ from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 import threading
 import time
+import subprocess
 from tool import (
     Config, has_root, get_gateway_ip, get_default_interface,
     get_subnet_cidr, enable_ip_forwarding, discover_clients,
@@ -138,6 +139,14 @@ def start_monitoring():
         return jsonify({"message": "Already monitoring"}), 200
     
     enable_ip_forwarding()
+    # CRITICAL: Setup iptables forwarding rules to prevent network cutoff
+    print("[+] Setting up packet forwarding rules...")
+    subprocess.run("iptables -F FORWARD", shell=True, stderr=subprocess.DEVNULL)
+    subprocess.run("iptables -t mangle -F", shell=True, stderr=subprocess.DEVNULL)
+    subprocess.run("iptables -P FORWARD ACCEPT", shell=True, stderr=subprocess.DEVNULL)
+    subprocess.run("iptables -A FORWARD -j ACCEPT", shell=True, stderr=subprocess.DEVNULL)
+    print("  ✓ Forwarding rules configured")
+
     
     # Start the traffic monitor
     print("[DEBUG] Starting traffic monitor...")
