@@ -19,6 +19,7 @@ from tool import (
     get_subnet_cidr, enable_ip_forwarding, discover_clients,
     TrafficMonitor, BandwidthController, ConnectionTracker
 )
+from metrics_exporter import MetricsExporter
 import scapy.all as scapy
 # Lazy import of NetMindAgent to avoid requiring ollama if not using agent mode
 
@@ -150,6 +151,7 @@ class NetMindAI:
         self.controller = None
         self.conn_tracker = None  # Connection tracker for activity monitoring
         self.agent = None  # AI Agent for agentic mode
+        self.metrics_exporter = None  # Prometheus metrics exporter
         self.running = False
         self.old_terminal_settings = None  # Store terminal settings
         
@@ -221,6 +223,12 @@ class NetMindAI:
         self.conn_tracker = ConnectionTracker(self.devices, self.iface)
         self.conn_tracker.start()
         print(colored("  ✓ Tracking device activity", "green"))
+        
+        # Start Prometheus metrics exporter
+        print(colored("[+] Starting Prometheus metrics exporter...", "cyan"))
+        self.metrics_exporter = MetricsExporter(self)
+        self.metrics_exporter.start()
+        print(colored("  ✓ Metrics available at http://localhost:9090/metrics", "green"))
         
         # Track last device scan time for dynamic discovery
         self.last_device_scan = time.time()
@@ -484,6 +492,7 @@ class NetMindAI:
             print(colored("\n⚙️  ACTIONS:", "yellow"))
             print("  [l] Limit specific device bandwidth")
             print("  [r] Remove limit from device")
+            print("  [x] Restore All - Remove ALL limits/blocks (keep monitoring)")
             print("  [b] Block device completely")
             print("  [u] Unblock device")
             print("  [v] View detailed device activity")
@@ -500,6 +509,8 @@ class NetMindAI:
                 self._manual_limit()
             elif choice == 'r':
                 self._manual_remove_limit()
+            elif choice == 'x':
+                self._restore_all_limits()
             elif choice == 'b':
                 self._manual_block()
             elif choice == 'u':
@@ -535,7 +546,7 @@ class NetMindAI:
                 time.sleep(1)
     
     def _manual_limit(self):
-        """Manually set bandwidth limit for a device"""
+        """Manually set bandwidth limit for one or multiple devices"""
         try:
             ip_list = list(self.devices.keys())
             if not ip_list:
@@ -543,20 +554,41 @@ class NetMindAI:
                 time.sleep(1)
                 return
             
-            device_input = input(colored("Device number to limit: ", "yellow"))
-            if not device_input.strip():
+            print(colored("\n📝 Enter device numbers to limit (comma-separated, e.g., 1,3,5):", "yellow"))
+            print(colored("   Or enter 'all' to limit all devices", "cyan"))
+            device_input = input(colored("Device number(s): ", "yellow")).strip()
+            
+            if not device_input:
                 return
             
-            idx = int(device_input) - 1
+            # Handle 'all' option
+            if device_input.lower() == 'all':
+                selected_ips = ip_list
+                print(colored(f"\n[+] Selected all {len(selected_ips)} devices", "cyan"))
+            else:
+                # Parse comma-separated numbers
+                try:
+                    indices = [int(x.strip()) - 1 for x in device_input.split(',')]
+                    selected_ips = []
+                    
+                    for idx in indices:
+                        if idx < 0 or idx >= len(ip_list):
+                            print(colored(f"Invalid device number: {idx + 1}", "red"))
+                            time.sleep(1)
+                            return
+                        selected_ips.append(ip_list[idx])
+                    
+                    print(colored(f"\n[+] Selected {len(selected_ips)} device(s):", "cyan"))
+                    for ip in selected_ips:
+                        print(f"  • {ip}")
+                    
+                except ValueError:
+                    print(colored("Invalid format! Use comma-separated numbers (e.g., 1,2,3)", "red"))
+                    time.sleep(1)
+                    return
             
-            if idx < 0 or idx >= len(ip_list):
-                print(colored("Invalid device number!", "red"))
-                time.sleep(1)
-                return
-            
-            ip = ip_list[idx]
-            print(colored(f"\nLimiting {ip}", "cyan"))
-            
+            # Get limit values
+            print(colored(f"\n⚙️  Set bandwidth limits for selected device(s):", "yellow"))
             down_input = input(colored("Download limit (KB/s): ", "yellow"))
             up_input = input(colored("Upload limit (KB/s): ", "yellow"))
             
@@ -579,11 +611,23 @@ class NetMindAI:
                 if confirm.lower() != 'y':
                     return
             
-            self.controller.apply_limit(ip, down, up)
-            # Mark this IP as manually limited - AI must not remove this
-            self.controller.manual_locks.add(ip)
-            print(colored(f"\n✓ Limit applied: {ip} → ↓{down}KB/s ↑{up}KB/s", "green"))
+            # Apply limits to all selected devices
+            print(colored(f"\n[+] Applying limits...", "cyan"))
+            success_count = 0
+            
+            for ip in selected_ips:
+                try:
+                    self.controller.apply_limit(ip, down, up)
+                    # Mark this IP as manually limited - AI must not remove this
+                    self.controller.manual_locks.add(ip)
+                    print(colored(f"  ✓ {ip} → ↓{down}KB/s ↑{up}KB/s", "green"))
+                    success_count += 1
+                except Exception as e:
+                    print(colored(f"  ✗ {ip} failed: {e}", "red"))
+            
+            print(colored(f"\n✓ Successfully limited {success_count}/{len(selected_ips)} device(s)", "green"))
             time.sleep(2)
+            
         except (ValueError, IndexError) as e:
             print(colored(f"Invalid input! {e}", "red"))
             time.sleep(1)
@@ -621,30 +665,134 @@ class NetMindAI:
             time.sleep(1)
     
     def _manual_block(self):
-        """Block a device completely"""
+        """Block one or multiple devices completely"""
         try:
             ip_list = list(self.devices.keys())
-            idx = int(input(colored("Device number to BLOCK: ", "red"))) - 1
-            
-            if idx < 0 or idx >= len(ip_list):
-                print(colored("Invalid device number!", "red"))
+            if not ip_list:
+                print(colored("\nNo devices available!", "red"))
                 time.sleep(1)
                 return
             
-            ip = ip_list[idx]
-            # Block by setting limit to 1 KB/s (effectively blocking)
-            self.controller.apply_limit(ip, 1, 1)
-            # Mark this IP as manually limited - AI must not remove this
-            self.controller.manual_locks.add(ip)
-            print(colored(f"\n✓ Device {ip} BLOCKED", "red"))
+            print(colored("\n📝 Enter device numbers to BLOCK (comma-separated, e.g., 1,3,5):", "red"))
+            print(colored("   Or enter 'all' to block all devices", "cyan"))
+            device_input = input(colored("Device number(s): ", "red")).strip()
+            
+            if not device_input:
+                return
+            
+            # Handle 'all' option
+            if device_input.lower() == 'all':
+                selected_ips = ip_list
+                print(colored(f"\n[!] WARNING: About to BLOCK all {len(selected_ips)} devices!", "red", attrs=["bold"]))
+                confirm = input(colored("Are you sure? (yes/no): ", "yellow"))
+                if confirm.lower() != 'yes':
+                    print(colored("Cancelled", "yellow"))
+                    time.sleep(1)
+                    return
+            else:
+                # Parse comma-separated numbers
+                try:
+                    indices = [int(x.strip()) - 1 for x in device_input.split(',')]
+                    selected_ips = []
+                    
+                    for idx in indices:
+                        if idx < 0 or idx >= len(ip_list):
+                            print(colored(f"Invalid device number: {idx + 1}", "red"))
+                            time.sleep(1)
+                            return
+                        selected_ips.append(ip_list[idx])
+                    
+                    print(colored(f"\n[!] About to BLOCK {len(selected_ips)} device(s):", "red", attrs=["bold"]))
+                    for ip in selected_ips:
+                        print(f"  • {ip}")
+                    
+                    confirm = input(colored("\nContinue? (y/n): ", "yellow"))
+                    if confirm.lower() != 'y':
+                        print(colored("Cancelled", "yellow"))
+                        time.sleep(1)
+                        return
+                    
+                except ValueError:
+                    print(colored("Invalid format! Use comma-separated numbers (e.g., 1,2,3)", "red"))
+                    time.sleep(1)
+                    return
+            
+            # Block all selected devices
+            print(colored(f"\n[+] Blocking devices...", "red"))
+            success_count = 0
+            
+            for ip in selected_ips:
+                try:
+                    # Block by setting limit to 1 KB/s (effectively blocking)
+                    self.controller.apply_limit(ip, 1, 1)
+                    # Mark this IP as manually limited - AI must not remove this
+                    self.controller.manual_locks.add(ip)
+                    print(colored(f"  ✓ {ip} BLOCKED", "red"))
+                    success_count += 1
+                except Exception as e:
+                    print(colored(f"  ✗ {ip} failed: {e}", "red"))
+            
+            print(colored(f"\n✓ Successfully blocked {success_count}/{len(selected_ips)} device(s)", "green"))
             time.sleep(2)
-        except (ValueError, IndexError):
-            print(colored("Invalid input!", "red"))
+            
+        except (ValueError, IndexError) as e:
+            print(colored(f"Invalid input! {e}", "red"))
+            time.sleep(1)
+        except KeyboardInterrupt:
+            print(colored("\n[!] Cancelled", "yellow"))
             time.sleep(1)
     
     def _manual_unblock(self):
         """Unblock a device"""
         self._manual_remove_limit()
+    
+    def _restore_all_limits(self):
+        """Restore all devices - remove ALL limits and blocks while keeping monitoring active"""
+        try:
+            if not self.controller.limits:
+                print(colored("\n[!] No active limits to restore", "yellow"))
+                time.sleep(1)
+                return
+            
+            limited_count = len(self.controller.limits)
+            print(colored(f"\n[!] About to restore {limited_count} device(s)", "yellow", attrs=["bold"]))
+            print(colored("    This will remove ALL limits and blocks", "yellow"))
+            print(colored("    Monitoring and ARP spoofing will continue", "cyan"))
+            
+            confirm = input(colored("\nContinue? (y/n): ", "yellow"))
+            if confirm.lower() != 'y':
+                print(colored("Cancelled", "yellow"))
+                time.sleep(1)
+                return
+            
+            print(colored("\n[+] Restoring all devices...", "cyan"))
+            success_count = 0
+            
+            # Create a copy of the keys to avoid dictionary size change during iteration
+            limited_ips = list(self.controller.limits.keys())
+            
+            for ip in limited_ips:
+                try:
+                    self.controller.remove_limit(ip)
+                    print(colored(f"  ✓ {ip} restored", "green"))
+                    success_count += 1
+                except Exception as e:
+                    print(colored(f"  ✗ {ip} failed: {e}", "red"))
+            
+            # Clear all manual locks
+            self.controller.manual_locks.clear()
+            
+            print(colored(f"\n✓ Successfully restored {success_count}/{limited_count} device(s)", "green"))
+            print(colored("[+] All devices have full network access", "green"))
+            print(colored("[+] Monitoring is still active", "cyan"))
+            time.sleep(2)
+            
+        except Exception as e:
+            print(colored(f"[!] Error: {e}", "red"))
+            time.sleep(1)
+        except KeyboardInterrupt:
+            print(colored("\n[!] Cancelled", "yellow"))
+            time.sleep(1)
     
     def _view_device_activity(self):
         """View detailed activity for a specific device"""
@@ -734,7 +882,11 @@ class NetMindAI:
                 # Lazy import - only import when actually using agent mode
                 from net_agent import NetMindAgent
                 
-                self.agent = NetMindAgent(self.monitor, self.controller, Config)
+                # Get Ollama host from environment variable (for Docker networking)
+                ollama_host = os.getenv('OLLAMA_HOST', 'http://localhost:11434')
+                print(colored(f"  • Connecting to Ollama at {ollama_host}", "cyan"))
+                
+                self.agent = NetMindAgent(self.monitor, self.controller, Config, ollama_host=ollama_host)
                 
                 # Set protected IPs (safety guard)
                 import netifaces
@@ -843,6 +995,14 @@ class NetMindAI:
                 termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self.old_terminal_settings)
             except:
                 pass
+        
+        # Stop metrics exporter
+        if self.metrics_exporter:
+            try:
+                self.metrics_exporter.stop()
+                print(colored("[✓] Metrics exporter stopped", "green"))
+            except Exception as e:
+                print(colored(f"[!] Metrics exporter stop error: {e}", "yellow"))
         
         if self.conn_tracker:
             try:
