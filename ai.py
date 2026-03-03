@@ -218,11 +218,15 @@ class NetMindAI:
         self.controller = IntelligentController(self.iface, self.monitor)
         self.controller.set_gateway(self.gateway)
         
-        # Start connection tracker
-        print(colored("[+] Starting connection tracker...", "cyan"))
-        self.conn_tracker = ConnectionTracker(self.devices, self.iface)
-        self.conn_tracker.start()
-        print(colored("  ✓ Tracking device activity", "green"))
+        # Start connection tracker (only if not in ultra performance mode)
+        if not Config.ULTRA_PERFORMANCE_MODE:
+            print(colored("[+] Starting connection tracker...", "cyan"))
+            self.conn_tracker = ConnectionTracker(self.devices, self.iface)
+            self.conn_tracker.start()
+            print(colored("  ✓ Tracking device activity", "green"))
+        else:
+            self.conn_tracker = None
+            print(colored("[⚡] Connection tracking DISABLED (Ultra Performance Mode)", "yellow"))
         
         # Start Prometheus metrics exporter
         print(colored("[+] Starting Prometheus metrics exporter...", "cyan"))
@@ -826,7 +830,7 @@ class NetMindAI:
             selected_ip = ip_list[idx]
             
             # Get detailed activity
-            activity = self.conn_tracker.get_activity(selected_ip)
+            activity = self.conn_tracker.get_activity(selected_ip) if self.conn_tracker else {"domains": [], "ips": [], "top_ports": []}
             stats = self.monitor.get_current_stats().get(selected_ip, {"up": 0, "down": 0})
             
             os.system('clear')
