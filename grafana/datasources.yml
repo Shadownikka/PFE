@@ -4,7 +4,7 @@ datasources:
   - name: Prometheus
     type: prometheus
     access: proxy
-    url: http://192.168.100.60:9091
+    url: http://netmind-prometheus:9090
     isDefault: true
     editable: true
     jsonData:
