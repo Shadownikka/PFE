@@ -219,8 +219,9 @@ AUTO_LIMIT_ENABLED    = True     # Active/désactive l'auto-limitation
 #### `TrafficMonitor` — Capture et Mesure du Trafic
 - `_packet_handler(packet)` : traite chaque paquet capturé par Scapy
   - Incrémente des compteurs d'octets par adresse IP source/destination
-- `_monitor_loop()` : calcule toutes les `MONITOR_INTERVAL` secondes les débits en KB/s
-  - `up_kbps = (delta_octets_up / 1024) / MONITOR_INTERVAL`
+- `_monitor_loop()` : calcule les débits en KB/s à chaque intervalle en utilisant le **temps réellement écoulé** (mesuré avec `time.time()`) et non la constante `MONITOR_INTERVAL`. Cela garantit des lectures stables même si le système retarde le réveil du thread.
+  - `elapsed = time.time() - last_time`
+  - `up_kbps = (delta_octets_up / 1024) / elapsed`
   - Conservation de l'historique dans une `deque` de taille `HISTORY_LENGTH`
 - `get_average_usage(ip, duration)` : moyenne glissante sur les `duration` dernières secondes
 

@@ -36,7 +36,14 @@ class Config:
     
     # Network capacity (auto-detect or manual)
     TOTAL_BANDWIDTH_KBPS = None  # None = auto-detect
-    
+
+    # Minimum fraction of MONITOR_INTERVAL that must elapse before a speed sample
+    # is accepted.  3 % of 3 s = 0.09 s — rejects only impossibly short OS wake-ups
+    # while still accepting any sample where the thread slept close to or longer than
+    # the nominal interval (including system-suspend/resume events, which correctly
+    # report near-zero KB/s because no traffic flowed during the suspension).
+    MIN_ELAPSED_RATIO = 0.03
+
     # Save state
     STATE_FILE = "/tmp/netmind_ai_state.json"
 
@@ -191,27 +198,40 @@ class TrafficMonitor:
     def _monitor_loop(self):
         """Continuous monitoring loop to calculate speed"""
         last_bytes = defaultdict(lambda: {"up": 0, "down": 0})
-        
+        last_time = time.time()
+
         while self.running:
             time.sleep(Config.MONITOR_INTERVAL)
-            
+
+            now = time.time()
+            elapsed = now - last_time
+
+            # Guard: skip this tick if the OS woke us far too early.
+            # Uses Config.MIN_ELAPSED_RATIO so the threshold scales automatically
+            # when MONITOR_INTERVAL changes.
+            if elapsed < Config.MONITOR_INTERVAL * Config.MIN_ELAPSED_RATIO:
+                continue  # last_time intentionally NOT updated: next tick gets full window
+
+            last_time = now  # Only advance the clock for valid ticks
+
             with self.lock:
                 for ip in self.devices.keys():
                     current_up = self.byte_counters[ip]["up"]
                     current_down = self.byte_counters[ip]["down"]
-                    
+
                     # Calculate delta
                     delta_up = current_up - last_bytes[ip]["up"]
                     delta_down = current_down - last_bytes[ip]["down"]
-                    
-                    # Convert to KB/s (KiloBytes per second)
-                    # Note: Most speed tests show Mbps (megabits/s), so KB/s * 8 / 1000 ≈ Mbps
-                    up_kbps = (delta_up / 1024) / Config.MONITOR_INTERVAL
-                    down_kbps = (delta_down / 1024) / Config.MONITOR_INTERVAL
-                    
+
+                    # Divide by ACTUAL elapsed time, not the nominal constant.
+                    # time.sleep() is not exact; using a fixed divisor causes readings
+                    # to spike/drop whenever the OS wakes the thread late or early.
+                    up_kbps = (delta_up / 1024) / elapsed
+                    down_kbps = (delta_down / 1024) / elapsed
+
                     self.stats[ip] = {"up": up_kbps, "down": down_kbps}
-                    self.history[ip].append({"up": up_kbps, "down": down_kbps, "time": time.time()})
-                    
+                    self.history[ip].append({"up": up_kbps, "down": down_kbps, "time": now})
+
                     last_bytes[ip] = {"up": current_up, "down": current_down}
 
     def get_current_stats(self):
