@@ -97,6 +97,9 @@ class MetricsExporter:
             blocked_count = 0
             active_count = 0
             
+            # Read iptables byte totals once (not per device)
+            totals = self.ai.monitor.get_total_bytes()
+            
             # Update per-device metrics
             for ip, device_info in self.ai.devices.items():
                 mac = device_info.get('mac', 'unknown')
@@ -111,9 +114,9 @@ class MetricsExporter:
                 bandwidth_download.labels(ip=ip, mac=mac, hostname=hostname).set(down_kbps)
                 bandwidth_upload.labels(ip=ip, mac=mac, hostname=hostname).set(up_kbps)
                 
-                # Get total bandwidth from byte counters
-                total_down_mb = self.ai.monitor.byte_counters[ip]['down'] / (1024 * 1024)
-                total_up_mb = self.ai.monitor.byte_counters[ip]['up'] / (1024 * 1024)
+                # Get total bandwidth from iptables counters
+                total_down_mb = totals[ip]['down'] / (1024 * 1024)
+                total_up_mb = totals[ip]['up'] / (1024 * 1024)
                 bandwidth_total_download.labels(ip=ip, mac=mac, hostname=hostname).set(total_down_mb)
                 bandwidth_total_upload.labels(ip=ip, mac=mac, hostname=hostname).set(total_up_mb)
                 
