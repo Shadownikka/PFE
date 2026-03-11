@@ -675,10 +675,8 @@ A: Edit `docker-compose.yml` and change the left side of the port mapping (e.g.,
 
 ## License
 
-MIT — Free to use and modify.
+Copyright © 2026 NetMind. All rights reserved.
 
 ---
-
-**Made with ❤️ for network admins and power users**
 
 For deep technical details, see [TECHNICAL.md](TECHNICAL.md)
