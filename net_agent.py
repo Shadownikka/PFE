@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 NetMind Agent - AI-Powered Network Management using Ollama
-Uses Llama 3.1 with function calling for intelligent bandwidth decisions
+Uses Llama 3.2 with optimized function calling for intelligent bandwidth decisions
+Optimized for <30s inference time
 """
 
 import json
@@ -12,7 +13,7 @@ from termcolor import colored
 class NetMindAgent:
     """AI Agent that uses Ollama LLM with function calling to manage network bandwidth"""
     
-    def __init__(self, monitor, controller, config):
+    def __init__(self, monitor, controller, config, ollama_host='http://localhost:11434'):
         """
         Initialize the NetMind AI Agent
         
@@ -20,18 +21,20 @@ class NetMindAgent:
             monitor: TrafficMonitor instance from tool.py
             controller: BandwidthController instance from tool.py
             config: Config instance from tool.py
+            ollama_host: Ollama API host (default: localhost, for Docker: ai-agent service)
         """
         self.monitor = monitor
         self.controller = controller
         self.config = config
-        self.client = ollama.Client(host='http://localhost:11434')
-        self.model = 'llama3.1'
+        self.client = ollama.Client(host=ollama_host)
+        self.model = 'llama3.2'  # Updated to Llama 3.2 for better performance
         
         # Safety: IPs that should NEVER be limited
         self.protected_ips = set()
         
-        # Conversation history for context
+        # Conversation history for context (limit to last 3 exchanges for performance)
         self.conversation_history = []
+        self.max_history = 3
         
         # Define available tools for the LLM
         self.tools = [
@@ -39,7 +42,7 @@ class NetMindAgent:
                 'type': 'function',
                 'function': {
                     'name': 'get_network_stats',
-                    'description': 'Get current network statistics for all connected devices including IP addresses, upload/download speeds, and activity status. Use this to analyze who is using bandwidth.',
+                    'description': 'Get current network statistics for all devices. Returns IP, speeds, and status. Essential before making any bandwidth decisions.',
                     'parameters': {
                         'type': 'object',
                         'properties': {},
@@ -375,49 +378,43 @@ class NetMindAgent:
             'content': user_message
         })
         
-        # Optimized shorter system prompt for faster responses
-        system_prompt = """You are NetMind, a network bandwidth manager. Be brief and direct.
+        # Keep only last N messages for performance
+        if len(self.conversation_history) > self.max_history * 2:
+            self.conversation_history = self.conversation_history[-(self.max_history * 2):]
+        
+        # Optimized system prompt for sub-30s inference
+        system_prompt = """NetMind bandwidth manager. Be concise.
 
 Rules:
-- Check stats first: use get_network_stats
-- Active device: upload/download > 1 kbps
-- Typical limits: 512-5120 KB/s
-- NEVER limit gateway/protected IPs
-- Use block_device to block (NOT enforce_limit with 0)
+- Check stats: get_network_stats
+- Active: >1 kbps
+- Limits: 512-5120 KB/s
+- NEVER limit gateway
+- Block = block_device (not enforce_limit 0)
 
-IMPORTANT INSTRUCTIONS:
-1. READ USER REQUEST CAREFULLY - pay attention to "except", "but", "only", "all but", "everyone except"
-2. "Block everyone except X" = block ALL devices EXCEPT device X (keep X unblocked)
-3. "Block all but X" = block ALL devices EXCEPT device X (keep X unblocked)
-4. "Block only X" = block ONLY device X (block just that one device)
-5. When a function executes, state what you DID (past tense), NOT what you could do
-6. Double-check your logic before executing - if user says "except", that device should NOT be blocked
+Commands:
+"Block everyone except X" = block ALL but X
+"Block only X" = block X only
+State what you DID (past tense)."""
 
-Example correct logic:
-User: "Block everyone except 192.168.1.5"
-Correct action: Block all IPs EXCEPT 192.168.1.5 (leave 192.168.1.5 normal)
-Wrong action: Block 192.168.1.5 (this is the OPPOSITE of what was requested!)"""
-
-        # Keep only last 6 messages for speed (3 exchanges)
-        recent_history = self.conversation_history[-6:] if len(self.conversation_history) > 6 else self.conversation_history
-        
         messages = [
             {'role': 'system', 'content': system_prompt}
-        ] + recent_history
+        ] + self.conversation_history
         
         try:
-            print(colored("\n[Agent] Thinking...", "cyan"))
+            print(colored("\n[Agent] Processing...", "cyan"))
             
-            # Call Ollama with tools (optimized for speed)
+            # Optimized for <30s inference
             response = self.client.chat(
                 model=self.model,
                 messages=messages,
                 tools=self.tools,
                 options={
-                    'temperature': 0.3,  # Lower = faster, more deterministic
-                    'num_predict': 200,  # Limit response length
-                    'top_k': 10,  # Faster token selection
-                    'top_p': 0.9,
+                    'temperature': 0.2,  # More deterministic = faster
+                    'num_predict': 150,  # Shorter responses
+                    'top_k': 5,  # Faster sampling
+                    'top_p': 0.85,
+                    'num_ctx': 2048,  # Smaller context window
                 }
             )
             
@@ -454,10 +451,11 @@ Wrong action: Block 192.168.1.5 (this is the OPPOSITE of what was requested!)"""
                     messages=messages,
                     tools=self.tools,
                     options={
-                        'temperature': 0.3,
-                        'num_predict': 200,
-                        'top_k': 10,
-                        'top_p': 0.9,
+                        'temperature': 0.2,
+                        'num_predict': 150,
+                        'top_k': 5,
+                        'top_p': 0.85,
+                        'num_ctx': 2048,
                     }
                 )
             

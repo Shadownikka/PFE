@@ -71,13 +71,55 @@ def get_subnet_cidr(iface):
         sys.exit(1)
 
 def enable_ip_forwarding():
-    """Enable IP forwarding"""
+    """Enable IP forwarding and tune kernel for high-throughput MITM forwarding"""
     try:
         with open('/proc/sys/net/ipv4/ip_forward', 'w') as f:
             f.write('1\n')
         print(colored("[✓] IP forwarding enabled", "green"))
     except:
         print(colored("[!] Failed to enable IP forwarding", "red"))
+        return
+
+    # --- Kernel tuning for minimal-overhead packet forwarding ---
+    iface = get_default_interface()
+
+    def _sysctl_w(key, val):
+        try:
+            with open(f'/proc/sys/{key.replace(".", "/")}', 'w') as f:
+                f.write(str(val))
+        except Exception:
+            pass
+
+    # Disable reverse-path filtering on the MITM interface.
+    # Strict rp_filter (2) silently drops ARP-spoofed traffic whose source
+    # IP doesn't match the expected return path, causing retransmissions.
+    _sysctl_w(f'net.ipv4.conf.{iface}.rp_filter', 0)
+    _sysctl_w('net.ipv4.conf.all.rp_filter', 0)
+
+    # Let the kernel batch-process more packets per softirq cycle.
+    # At 30 MB/s (~25 000 pps) the default backlog of 1000 overflows.
+    _sysctl_w('net.core.netdev_max_backlog', 5000)
+    _sysctl_w('net.core.netdev_budget', 600)
+    _sysctl_w('net.core.netdev_budget_usecs', 8000)
+
+    # Skip pointless TOS/priority rewrite on every forwarded packet.
+    _sysctl_w('net.ipv4.ip_forward_update_priority', 0)
+
+    # Enlarge conntrack table in case it can't be bypassed entirely.
+    _sysctl_w('net.netfilter.nf_conntrack_max', 262144)
+
+    # Disable WiFi power-save — it sleeps the radio between bursts,
+    # adding 50-200 ms latency spikes that destroy forwarding throughput.
+    subprocess.run(f'iw dev {iface} set power_save off',
+                   shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(f'iwconfig {iface} power off',
+                   shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    # Bigger transmit queue — prevents tail-drops when bursting.
+    subprocess.run(f'ip link set {iface} txqueuelen 2000',
+                   shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    print(colored("[✓] Forwarding optimizations applied (rp_filter, backlog, WiFi PS off)", "green"))
 
 def discover_clients(ip_range):
     """Quick ARP scan"""
@@ -108,7 +150,7 @@ class ARPSpoofer:
             pkt2 = scapy.Ether(dst=self.gateway["mac"]) / scapy.ARP(op=2, pdst=self.gateway["ip"], hwdst=self.gateway["mac"], psrc=self.target["ip"])
             scapy.sendp(pkt2, verbose=False)
             
-            time.sleep(0.5)
+            time.sleep(5)
 
     def start(self):
         self.spoofing.clear()
@@ -133,7 +175,7 @@ class ARPSpoofer:
             print(colored(f"[!] ARP restoration error: {e}", "red"))
 
 # -------------------------
-# Traffic Monitor (Packet Sniffing - More Accurate)
+# Traffic Monitor (iptables counters - kernel-space, zero overhead)
 # -------------------------
 class TrafficMonitor:
     def __init__(self, devices):
@@ -142,77 +184,141 @@ class TrafficMonitor:
         self.history = defaultdict(lambda: deque(maxlen=Config.HISTORY_LENGTH))
         self.running = False
         self.lock = threading.Lock()
-        self.byte_counters = defaultdict(lambda: {"up": 0, "down": 0})
-        self.sniffer_thread = None
+        self.ema_alpha = 0.3  # EMA smoothing factor
+        self._counted_ips = set()  # IPs that have iptables counter rules
+        self._baseline_needed = set()  # IPs needing first-read baseline
+        self._notrack_target = None  # Conntrack bypass target name, set by _setup_iptables_counters
 
-    def _packet_handler(self, packet):
-        """Handle each captured packet"""
-        try:
-            if scapy.IP in packet:
-                ip_src = packet[scapy.IP].src
-                ip_dst = packet[scapy.IP].dst
-                pkt_size = len(packet)
-                
-                with self.lock:
-                    # Upload: packet FROM a monitored device
-                    if ip_src in self.devices:
-                        self.byte_counters[ip_src]["up"] += pkt_size
-                    
-                    # Download: packet TO a monitored device
-                    if ip_dst in self.devices:
-                        self.byte_counters[ip_dst]["down"] += pkt_size
-        except Exception:
-            pass
+    def _setup_iptables_counters(self):
+        """Add iptables accounting rules for each monitored device"""
+        iface = get_default_interface()
 
-    def _sniffer_loop(self, iface):
-        """Sniff packets on the interface"""
+        # --- Bypass conntrack for forwarded traffic (BIGGEST performance win) ---
+        # nf_conntrack inspects EVERY forwarded packet to maintain connection
+        # state tables.  Our counting rules are stateless ACCEPT + MARK, so
+        # conntrack is pure overhead.  Skip it for packets not destined for
+        # this machine (= forwarded traffic).  Local traffic (SSH, web UI)
+        # keeps normal tracking.
+        for target in ('CT --notrack', 'NOTRACK'):
+            # Remove stale rule from previous run
+            subprocess.run(
+                f'iptables -t raw -D PREROUTING -i {iface} -m addrtype ! --dst-type LOCAL -j {target}',
+                shell=True, stderr=subprocess.DEVNULL)
+        for target in ('CT --notrack', 'NOTRACK'):
+            res = subprocess.run(
+                f'iptables -t raw -I PREROUTING -i {iface} -m addrtype ! --dst-type LOCAL -j {target}',
+                shell=True, capture_output=True)
+            if res.returncode == 0:
+                self._notrack_target = target
+                print(colored(f'[✓] Conntrack bypass active ({target})', 'green'))
+                break
+
+        # Remove any stale catch-all ACCEPT in FORWARD that would shadow our
+        # per-device rules (e.g. left over from Docker or previous runs).
+        for _ in range(5):
+            res = subprocess.run(
+                "iptables -D FORWARD -s 0.0.0.0/0 -d 0.0.0.0/0 -j ACCEPT",
+                shell=True, stderr=subprocess.DEVNULL)
+            if res.returncode != 0:
+                break
+
+        # Insert per-device rules at the TOP of the FORWARD chain so they are
+        # evaluated before any blanket ACCEPT that other software may add.
+        # These are lightweight ACCEPT rules — they don't add overhead because
+        # matched packets would be accepted anyway; they just let us count bytes.
+        # We insert in reverse order so the first device ends up at position 1.
+        for ip in reversed(list(self.devices)):
+            subprocess.run(f"iptables -I FORWARD 1 -s {ip} -j ACCEPT", shell=True, stderr=subprocess.DEVNULL)
+            subprocess.run(f"iptables -I FORWARD 1 -d {ip} -j ACCEPT", shell=True, stderr=subprocess.DEVNULL)
+            self._counted_ips.add(ip)
+
+        # All initial IPs need a baseline read before computing deltas
+        self._baseline_needed = set(self._counted_ips)
+        print(colored(f"[+] iptables counters set for {len(self._counted_ips)} devices", "green"))
+
+    def _add_counter_rules(self, ip):
+        """Dynamically add iptables counter rules for a single new device"""
+        if ip in self._counted_ips:
+            return
+        subprocess.run(f"iptables -I FORWARD 1 -s {ip} -j ACCEPT", shell=True, stderr=subprocess.DEVNULL)
+        subprocess.run(f"iptables -I FORWARD 1 -d {ip} -j ACCEPT", shell=True, stderr=subprocess.DEVNULL)
+        self._counted_ips.add(ip)
+        self._baseline_needed.add(ip)
+        print(colored(f"[+] Added iptables counters for new device {ip}", "green"))
+
+    def _read_iptables_counters(self):
+        """Read byte counters from iptables FORWARD chain"""
+        counters = defaultdict(lambda: {"up": 0, "down": 0})
         try:
-            # Sniff all IP packets
-            scapy.sniff(
-                iface=iface,
-                prn=self._packet_handler,
-                store=False,
-                stop_filter=lambda x: not self.running
+            result = subprocess.run(
+                "iptables -L FORWARD -v -n -x",
+                shell=True, capture_output=True, text=True
             )
+            for line in result.stdout.splitlines():
+                parts = line.split()
+                if len(parts) < 9:
+                    continue
+                try:
+                    bytes_val = int(parts[1])
+                except ValueError:
+                    continue
+                src = parts[7]
+                dst = parts[8]
+                if src in self.devices:
+                    counters[src]["up"] += bytes_val
+                if dst in self.devices:
+                    counters[dst]["down"] += bytes_val
         except Exception as e:
-            print(colored(f"[!] Sniffer error: {e}", "red"))
+            print(colored(f"[!] iptables read error: {e}", "red"))
+        return counters
 
     def start(self):
         """Start monitoring"""
         self.running = True
-        # Start packet sniffer in a separate thread
-        iface = get_default_interface()
-        self.sniffer_thread = threading.Thread(target=self._sniffer_loop, args=(iface,), daemon=True)
-        self.sniffer_thread.start()
-        print(colored(f"[+] Packet sniffer started on {iface}", "green"))
-        # Start stats calculation thread
+        self._setup_iptables_counters()
         threading.Thread(target=self._monitor_loop, daemon=True).start()
+        print(colored("[+] Traffic monitor started (iptables counters)", "green"))
 
     def _monitor_loop(self):
-        """Continuous monitoring loop to calculate speed"""
+        """Continuous monitoring loop — reads iptables counters with EMA smoothing"""
         last_bytes = defaultdict(lambda: {"up": 0, "down": 0})
-        
+
         while self.running:
             time.sleep(Config.MONITOR_INTERVAL)
-            
+
+            # Auto-add iptables rules for any new devices added by ai.py
+            for ip in list(self.devices):
+                if ip not in self._counted_ips:
+                    self._add_counter_rules(ip)
+
+            counters = self._read_iptables_counters()
+
             with self.lock:
-                for ip in self.devices.keys():
-                    current_up = self.byte_counters[ip]["up"]
-                    current_down = self.byte_counters[ip]["down"]
-                    
-                    # Calculate delta
-                    delta_up = current_up - last_bytes[ip]["up"]
-                    delta_down = current_down - last_bytes[ip]["down"]
-                    
-                    # Convert to KB/s (KiloBytes per second)
-                    # Note: Most speed tests show Mbps (megabits/s), so KB/s * 8 / 1000 ≈ Mbps
-                    up_kbps = (delta_up / 1024) / Config.MONITOR_INTERVAL
-                    down_kbps = (delta_down / 1024) / Config.MONITOR_INTERVAL
-                    
+                for ip in list(self.devices):
+                    cur_up = counters[ip]["up"]
+                    cur_down = counters[ip]["down"]
+
+                    # First read for this IP — set baseline, skip delta calc
+                    if ip in self._baseline_needed:
+                        last_bytes[ip] = {"up": cur_up, "down": cur_down}
+                        self._baseline_needed.discard(ip)
+                        continue
+
+                    delta_up = max(cur_up - last_bytes[ip]["up"], 0)
+                    delta_down = max(cur_down - last_bytes[ip]["down"], 0)
+
+                    raw_up = (delta_up / 1024) / Config.MONITOR_INTERVAL
+                    raw_down = (delta_down / 1024) / Config.MONITOR_INTERVAL
+
+                    # EMA smoothing
+                    prev = self.stats[ip]
+                    up_kbps = self.ema_alpha * raw_up + (1 - self.ema_alpha) * prev["up"]
+                    down_kbps = self.ema_alpha * raw_down + (1 - self.ema_alpha) * prev["down"]
+
                     self.stats[ip] = {"up": up_kbps, "down": down_kbps}
                     self.history[ip].append({"up": up_kbps, "down": down_kbps, "time": time.time()})
-                    
-                    last_bytes[ip] = {"up": current_up, "down": current_down}
+
+                    last_bytes[ip] = {"up": cur_up, "down": cur_down}
 
     def get_current_stats(self):
         """Get current bandwidth stats"""
@@ -235,10 +341,26 @@ class TrafficMonitor:
             avg_down = statistics.mean([h["down"] for h in recent])
             return {"up": avg_up, "down": avg_down}
 
+    def get_total_bytes(self):
+        """Return cumulative byte counters from iptables for all devices"""
+        return self._read_iptables_counters()
+
     def stop(self):
         """Stop monitoring"""
         self.running = False
         time.sleep(1)  # Allow monitor loop to finish
+        # Clean up conntrack bypass rule
+        if self._notrack_target:
+            iface = get_default_interface()
+            subprocess.run(
+                f'iptables -t raw -D PREROUTING -i {iface} -m addrtype ! --dst-type LOCAL -j {self._notrack_target}',
+                shell=True, stderr=subprocess.DEVNULL)
+            self._notrack_target = None
+        # Clean up iptables counter rules for ALL tracked IPs
+        for ip in self._counted_ips:
+            subprocess.run(f"iptables -D FORWARD -s {ip} -j ACCEPT 2>/dev/null", shell=True, stderr=subprocess.DEVNULL)
+            subprocess.run(f"iptables -D FORWARD -d {ip} -j ACCEPT 2>/dev/null", shell=True, stderr=subprocess.DEVNULL)
+        self._counted_ips.clear()
         print(colored("[+] Traffic monitor stopped", "green"))
 
 # -------------------------
@@ -267,94 +389,70 @@ class ConnectionTracker:
         threading.Thread(target=self._sniff_packets, daemon=True).start()
         
     def _sniff_packets(self):
-        """Sniff packets to track connections"""
+        """Capture DNS packets using tcpdump (low overhead, no userspace copy)"""
+        proc = None
         try:
-            # Sniff all IP packets (no filter for better accuracy)
-            scapy.sniff(
-                iface=self.iface,
-                prn=self._process_packet,
-                store=False,
-                stop_filter=lambda x: self.running.is_set()
+            cmd = ["tcpdump", "-i", self.iface, "-l", "-n", "udp", "port", "53"]
+            proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True
             )
+            for line in proc.stdout:
+                if self.running.is_set():
+                    break
+                self._process_packet_fast(line.strip())
         except Exception as e:
-            print(colored(f"[!] Packet sniffing error: {e}", "yellow"))
-    
-    def _process_packet(self, pkt):
-        """Process each captured packet"""
+            print(colored(f"[!] tcpdump sniffing error: {e}", "yellow"))
+        finally:
+            if proc:
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=2)
+                except Exception:
+                    proc.kill()
+
+    def _process_packet_fast(self, line):
+        """Parse tcpdump DNS line for source IP and domain name"""
         try:
-            # Check if packet has IP layer
-            if not pkt.haslayer(scapy.IP):
+            # Example tcpdump output:
+            # "14:23:45.123 IP 192.168.1.5.51234 > 8.8.8.8.53: 12345+ A? www.google.com. (33)"
+            if not line or 'IP' not in line:
                 return
-            
-            src_ip = pkt[scapy.IP].src
-            dst_ip = pkt[scapy.IP].dst
-            
-            # Only track packets from our monitored devices
-            device_ip = None
-            remote_ip = None
-            
-            if src_ip in self.devices:
-                device_ip = src_ip
-                remote_ip = dst_ip
-            elif dst_ip in self.devices:
-                device_ip = dst_ip
-                remote_ip = src_ip
-            else:
+
+            parts = line.split()
+            try:
+                ip_idx = parts.index('IP') + 1
+            except ValueError:
                 return
-            
+
+            src_with_port = parts[ip_idx]
+            # Source is like "192.168.1.5.51234" — last dot-segment is the port
+            src_ip = src_with_port.rsplit('.', 1)[0]
+
+            # Only track DNS queries from monitored devices
+            if src_ip not in self.devices:
+                return
+
+            # Extract domain from DNS query (look for query-type tokens)
+            domain = None
+            for i, part in enumerate(parts):
+                if part in ('A?', 'AAAA?', 'PTR?', 'MX?', 'CNAME?', 'TXT?', 'SRV?', 'SOA?', 'NS?'):
+                    if i + 1 < len(parts):
+                        domain = parts[i + 1].rstrip('.').rstrip('(').strip()
+                    break
+
+            if not domain:
+                return
+
             current_time = time.time()
-            
             with self.lock:
-                # Update last activity time
-                self.connections[device_ip]["last_activity"] = current_time
-                
-                # Track DNS queries (outgoing)
-                if pkt.haslayer(scapy.DNSQR):
-                    try:
-                        qname = pkt[scapy.DNSQR].qname
-                        if qname:
-                            domain = qname.decode('utf-8', errors='ignore').rstrip('.')
-                            if domain and domain not in [d[1] for d in list(self.connections[device_ip]["domains"])[-10:]]:
-                                self.connections[device_ip]["domains"].append((current_time, domain))
-                    except:
-                        pass
-                
-                # Track DNS responses to cache IP->domain mapping
-                if pkt.haslayer(scapy.DNSRR):
-                    try:
-                        dns = pkt[scapy.DNS]
-                        if dns.ancount > 0:
-                            for i in range(dns.ancount):
-                                answer = dns.an[i]
-                                if answer.type == 1:  # A record
-                                    domain = answer.rrname.decode('utf-8', errors='ignore').rstrip('.')
-                                    ip_addr = answer.rdata
-                                    if ip_addr:
-                                        self.dns_cache[ip_addr] = domain
-                    except:
-                        pass
-                
-                # Track remote IPs (exclude local/broadcast)
-                if remote_ip and remote_ip not in ['0.0.0.0', '255.255.255.255'] and not remote_ip.startswith('192.168.'):
-                    # Check if this IP is not already in recent list
-                    recent_ips = [ip[1] for ip in list(self.connections[device_ip]["ips"])[-10:]]
-                    if remote_ip not in recent_ips:
-                        self.connections[device_ip]["ips"].append((current_time, remote_ip))
-                
-                # Track ports and protocols
-                if pkt.haslayer(scapy.TCP):
-                    port = pkt[scapy.TCP].dport if src_ip == device_ip else pkt[scapy.TCP].sport
-                    protocol = f"TCP/{port}"
-                    self.connections[device_ip]["ports"][protocol] += 1
-                elif pkt.haslayer(scapy.UDP):
-                    port = pkt[scapy.UDP].dport if src_ip == device_ip else pkt[scapy.UDP].sport
-                    if port != 53:  # Exclude DNS from port stats
-                        protocol = f"UDP/{port}"
-                        self.connections[device_ip]["ports"][protocol] += 1
-                        
-        except Exception as e:
-            pass  # Silently ignore packet parsing errors
-    
+                self.connections[src_ip]["last_activity"] = current_time
+                # Avoid duplicate entries in recent history
+                recent = [d for _, d in list(self.connections[src_ip]["domains"])[-10:]]
+                if domain not in recent:
+                    self.connections[src_ip]["domains"].append((current_time, domain))
+        except Exception:
+            pass
+
     def get_activity(self, ip):
         """Get connection activity for a device"""
         with self.lock:
@@ -493,17 +591,12 @@ class BandwidthController:
         self._setup_tc()
 
     def _setup_tc(self):
-        """Initialize TC (traffic control)"""
+        """Initialize TC (traffic control) with lightweight fq_codel"""
         try:
             subprocess.run(f"tc qdisc del dev {self.iface} root 2>/dev/null", shell=True, stderr=subprocess.DEVNULL)
-            result = subprocess.run(f"tc qdisc add dev {self.iface} root handle 1: htb default 10", shell=True, capture_output=True, text=True)
+            result = subprocess.run(f"tc qdisc add dev {self.iface} root fq_codel", shell=True, capture_output=True, text=True)
             if result.returncode != 0:
                 print(colored(f"[!] Failed to setup TC qdisc: {result.stderr}", "red"))
-                return False
-            
-            result = subprocess.run(f"tc class add dev {self.iface} parent 1: classid 1:10 htb rate 1000mbit", shell=True, capture_output=True, text=True)
-            if result.returncode != 0:
-                print(colored(f"[!] Failed to setup TC class: {result.stderr}", "red"))
                 return False
             return True
         except Exception as e:
@@ -531,6 +624,12 @@ class BandwidthController:
         # Remove existing limit if present
         if ip in self.limits:
             self.remove_limit(ip)
+        
+        # If no limits are active, switch from fq_codel to HTB for rate limiting
+        if not self.limits:
+            subprocess.run(f"tc qdisc del dev {self.iface} root 2>/dev/null", shell=True, stderr=subprocess.DEVNULL)
+            subprocess.run(f"tc qdisc add dev {self.iface} root handle 1: htb default 10", shell=True, capture_output=True, text=True)
+            subprocess.run(f"tc class add dev {self.iface} parent 1: classid 1:10 htb rate 1000mbit", shell=True, capture_output=True, text=True)
         
         mark = str((hash(ip) % 200) + 50)
         
@@ -594,15 +693,12 @@ class BandwidthController:
                 return False
             
             # Mark in iptables for additional control
-            subprocess.run(f"iptables -t mangle -I POSTROUTING -s {ip} -j MARK --set-mark {mark}", shell=True, stderr=subprocess.DEVNULL)
-            subprocess.run(f"iptables -t mangle -I PREROUTING -d {ip} -j MARK --set-mark {mark_down}", shell=True, stderr=subprocess.DEVNULL)
+            subprocess.run(f"iptables -t mangle -A POSTROUTING -s {ip} -j MARK --set-mark {mark}", shell=True, stderr=subprocess.DEVNULL)
+            subprocess.run(f"iptables -t mangle -A PREROUTING -d {ip} -j MARK --set-mark {mark_down}", shell=True, stderr=subprocess.DEVNULL)
             
             self.limits[ip] = {"down": down_kbps, "up": up_kbps}
             print(colored(f"[✓] Limited {ip}: ↓{down_kbps}KB/s ↑{up_kbps}KB/s", "yellow"))
-            print(f"[DEBUG] About to return True from apply_limit - CODE VERSION 2")
-            retval = True
-            print(f"[DEBUG] retval is: {retval} (type: {type(retval)})")
-            return retval
+            return True
         except subprocess.CalledProcessError as e:
             print(colored(f"[!] Failed to apply limit to {ip}: {e}", "red"))
             # Cleanup partial rules

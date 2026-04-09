@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y \
     tcpdump \
     iptables \
     iproute2 \
+    iw \
     git \
     && rm -rf /var/lib/apt/lists/*
 
