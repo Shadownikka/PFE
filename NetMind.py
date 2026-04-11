@@ -26,6 +26,9 @@ def main():
     """, "cyan", attrs=["bold"]))
     
     ai = NetMindAI()
+    # Background discovery scanner interval (seconds)
+    Config.DISCOVERY_INTERVAL = 10
+    print(colored(f"[✓] Background discovery enabled ({Config.DISCOVERY_INTERVAL}s interval)", "green"))
     
     while True:
         ai.scan_network()

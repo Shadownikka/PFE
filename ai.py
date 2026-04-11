@@ -17,7 +17,8 @@ from termcolor import colored
 from tool import (
     Config, has_root, get_gateway_ip, get_default_interface, 
     get_subnet_cidr, enable_ip_forwarding, discover_clients,
-    TrafficMonitor, BandwidthController, ConnectionTracker
+    TrafficMonitor, BandwidthController, ConnectionTracker,
+    discover_devices, NetworkGatekeeper, BackgroundScanner
 )
 from metrics_exporter import MetricsExporter
 import scapy.all as scapy
@@ -42,6 +43,14 @@ class IntelligentController:
     def start_spoofing(self, target):
         """Start ARP spoofing for a device"""
         self.controller.start_spoofing(target)
+
+    def set_gatekeeper(self, gatekeeper):
+        """Set trusted-device gatekeeper for spoofing and packet filtering."""
+        self.controller.set_gatekeeper(gatekeeper)
+
+    def sync_spoofing_targets(self, target_devices):
+        """Sync active ARP spoofers from discovery registry."""
+        self.controller.sync_spoofers_from_registry(target_devices)
 
     def apply_limit(self, ip, down_kbps, up_kbps):
         """Apply bandwidth limit"""
@@ -154,6 +163,8 @@ class NetMindAI:
         self.metrics_exporter = None  # Prometheus metrics exporter
         self.running = False
         self.old_terminal_settings = None  # Store terminal settings
+        self.gatekeeper = NetworkGatekeeper()
+        self.background_scanner = None
         
         # Setup signal handlers
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -168,16 +179,64 @@ class NetMindAI:
     def scan_network(self):
         """Scan for devices"""
         print(colored(f"[+] Scanning {self.subnet}...", "cyan"))
-        clients = discover_clients(self.subnet)
-        
+        discovered = discover_devices(self.iface)
+
+        if not discovered:
+            print(colored("[!] No active devices discovered", "yellow"))
+            self.devices = {}
+            return
+
+        print(colored("\n[#] Discovered devices:", "cyan"))
+        print(colored("-" * 72, "white"))
+        print(f"{'No.':<4} {'IP':<16} {'MAC':<20} {'Hostname':<28}")
+        print(colored("-" * 72, "white"))
+        for idx, dev in discovered.items():
+            print(f"{idx:<4} {dev['ip']:<16} {dev['mac']:<20} {dev.get('hostname', 'Unknown'):<28}")
+
+        trusted_macs = self._select_trusted_devices(discovered)
+        self.gatekeeper = NetworkGatekeeper(trusted_macs=trusted_macs)
+
         self.devices = {}
-        for c in clients:
-            if c["ip"] != self.gateway_ip:
-                self.devices[c["ip"]] = {"mac": c["mac"], "name": f"Device-{c['ip'].split('.')[-1]}"}
-        
-        print(colored(f"[✓] Found {len(self.devices)} devices", "green"))
+        for _, c in discovered.items():
+            if c["ip"] == self.gateway_ip:
+                continue
+            if self.gatekeeper.is_trusted_mac(c["mac"]):
+                continue
+            self.devices[c["ip"]] = {
+                "mac": c["mac"],
+                "name": c.get("hostname") or f"Device-{c['ip'].split('.')[-1]}"
+            }
+
+        self.gatekeeper.set_targets(self.devices)
+
+        print(colored(f"\n[✓] Found {len(discovered)} devices | Targets: {len(self.devices)} | Trusted: {len(trusted_macs)}", "green"))
         for ip, info in self.devices.items():
             print(f"  • {ip.ljust(15)} {info['mac']}")
+
+    def _select_trusted_devices(self, discovered):
+        """Ask user for trusted device numbers and return trusted MAC list."""
+        raw = input(colored("\nEnter the numbers of the devices you want to EXCLUDE (Trusted) separated by commas: ", "yellow")).strip()
+        if not raw:
+            return []
+
+        trusted_macs = []
+        selected_numbers = []
+        for token in raw.split(','):
+            token = token.strip()
+            if not token:
+                continue
+            if not token.isdigit():
+                print(colored(f"[!] Ignoring invalid selection '{token}'", "yellow"))
+                continue
+            selected_numbers.append(int(token))
+
+        for num in selected_numbers:
+            if num in discovered:
+                trusted_macs.append(discovered[num]["mac"])
+            else:
+                print(colored(f"[!] Device number {num} not found", "yellow"))
+
+        return trusted_macs
 
     def start_monitoring(self, mode='auto'):
         """Start intelligent monitoring and auto-balancing"""
@@ -217,10 +276,11 @@ class NetMindAI:
         # Start controller
         self.controller = IntelligentController(self.iface, self.monitor)
         self.controller.set_gateway(self.gateway)
+        self.controller.set_gatekeeper(self.gatekeeper)
         
         # Start connection tracker
         print(colored("[+] Starting connection tracker...", "cyan"))
-        self.conn_tracker = ConnectionTracker(self.devices, self.iface)
+        self.conn_tracker = ConnectionTracker(self.devices, self.iface, gatekeeper=self.gatekeeper)
         self.conn_tracker.start()
         print(colored("  ✓ Tracking device activity", "green"))
         
@@ -231,7 +291,14 @@ class NetMindAI:
         print(colored("  ✓ Metrics available at http://localhost:9090/metrics", "green"))
         
         # Track last device scan time for dynamic discovery
-        self.last_device_scan = time.time()
+        self.background_scanner = BackgroundScanner(
+            interface=self.iface,
+            subnet_cidr=self.subnet,
+            trusted_macs=self.gatekeeper.get_trusted_macs(),
+            scan_interval=Config.DISCOVERY_INTERVAL,
+        )
+        self.background_scanner.seed_devices(self.devices)
+        self.background_scanner.start()
         
         # Start ARP spoofing for all devices
         print(colored("\n[+] Starting ARP spoofing for all devices...", "cyan"))
@@ -290,10 +357,7 @@ class NetMindAI:
                 iteration += 1
                 
                 # Check for new devices every 30 seconds
-                current_time = time.time()
-                if current_time - self.last_device_scan >= 30:
-                    self._scan_for_new_devices()
-                    self.last_device_scan = current_time
+                self._sync_background_discovery()
                 
                 # Auto-balance if enabled
                 if Config.AUTO_LIMIT_ENABLED and iteration % 3 == 0:
@@ -359,9 +423,15 @@ class NetMindAI:
                 # Skip gateway and already known devices
                 if ip == self.gateway_ip or ip in self.devices:
                     continue
+
+                # Skip trusted devices
+                if self.gatekeeper and self.gatekeeper.is_trusted_mac(mac):
+                    continue
                 
                 # Add new device
                 self.devices[ip] = {"mac": mac, "name": f"Device-{ip.split('.')[-1]}"}
+                if self.gatekeeper:
+                    self.gatekeeper.set_targets(self.devices)
                 
                 # Add to traffic monitor
                 if self.monitor and self.monitor.running:
@@ -376,6 +446,41 @@ class NetMindAI:
                         pass  # Silent fail to not disrupt display
         except Exception as e:
             pass  # Silent fail to not disrupt monitoring
+
+    def _sync_background_discovery(self):
+        """Sync shared discovery registry into monitor/UI/controller state."""
+        if not self.background_scanner:
+            return
+
+        # Keep trusted filter aligned with latest gatekeeper state
+        self.background_scanner.update_trusted_macs(self.gatekeeper.get_trusted_macs())
+
+        # Handle only newly discovered active targets for lightweight updates
+        new_targets = self.background_scanner.pop_new_active_targets()
+        for ip, info in new_targets.items():
+            if ip == self.gateway_ip:
+                continue
+            if ip in self.devices:
+                continue
+
+            mac = info.get("mac", "")
+            if self.gatekeeper and self.gatekeeper.is_trusted_mac(mac):
+                continue
+
+            self.devices[ip] = {
+                "mac": mac,
+                "name": info.get("name") or f"Device-{ip.split('.')[-1]}",
+            }
+
+            if self.monitor and self.monitor.running:
+                self.monitor.devices[ip] = {'mac': mac}
+                self.monitor.stats[ip] = {'up': 0, 'down': 0, 'total_up': 0, 'total_down': 0}
+
+            if self.mode == 'manual':
+                print(colored(f"\n[+] New device discovered: {ip} ({mac})", "yellow"))
+
+        # Dynamic spoofer sync: new non-trusted targets begin spoofing next loop
+        self.controller.sync_spoofing_targets(self.background_scanner.get_active_targets())
 
     def _display_stats(self):
         """Display current statistics"""
@@ -1010,6 +1115,13 @@ class NetMindAI:
                 print(colored("[✓] Connection tracker stopped", "green"))
             except Exception as e:
                 print(colored(f"[!] Tracker stop error: {e}", "yellow"))
+
+        if self.background_scanner:
+            try:
+                self.background_scanner.stop()
+                print(colored("[✓] Background discovery stopped", "green"))
+            except Exception as e:
+                print(colored(f"[!] Background discovery stop error: {e}", "yellow"))
         
         if self.monitor:
             try:
