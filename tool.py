@@ -11,6 +11,7 @@ import netifaces
 import threading
 import sys
 import time
+import queue
 from collections import defaultdict, deque
 from termcolor import colored
 import statistics
@@ -177,8 +178,9 @@ def discover_devices(interface):
 class NetworkGatekeeper:
     """Holds trusted/target lists and enforces exclusion checks."""
 
-    def __init__(self, trusted_macs=None):
+    def __init__(self, trusted_macs=None, trusted_ips=None):
         self._trusted_macs = set(mac.lower() for mac in (trusted_macs or []))
+        self._trusted_ips = set(str(ip) for ip in (trusted_ips or []))
         self._targets = {}  # ip -> {"ip", "mac", "name"}
 
     def set_targets(self, devices):
@@ -186,7 +188,7 @@ class NetworkGatekeeper:
         self._targets = {}
         for ip, info in devices.items():
             mac = info.get("mac", "").lower()
-            if mac in self._trusted_macs:
+            if mac in self._trusted_macs or ip in self._trusted_ips:
                 continue
             self._targets[ip] = info
 
@@ -206,6 +208,19 @@ class NetworkGatekeeper:
     def get_trusted_macs(self):
         return set(self._trusted_macs)
 
+    def add_trusted_ip(self, ip):
+        if not ip:
+            return
+        normalized = str(ip)
+        self._trusted_ips.add(normalized)
+        self._targets.pop(normalized, None)
+
+    def is_trusted_ip(self, ip):
+        return bool(ip) and str(ip) in self._trusted_ips
+
+    def get_trusted_ips(self):
+        return set(self._trusted_ips)
+
     def get_target_devices(self):
         return dict(self._targets)
 
@@ -218,11 +233,12 @@ class NetworkGatekeeper:
 class BackgroundScanner:
     """Background ARP discovery engine with thread-safe registry."""
 
-    def __init__(self, interface, subnet_cidr, trusted_macs=None, scan_interval=60):
+    def __init__(self, interface, subnet_cidr, trusted_macs=None, permanent_exclusions=None, scan_interval=60):
         self.interface = interface
         self.subnet_cidr = subnet_cidr
         self.scan_interval = max(5, int(scan_interval))
         self.trusted_macs = set(mac.lower() for mac in (trusted_macs or []))
+        self.permanent_exclusions = set(str(v).lower() for v in (permanent_exclusions or []))
 
         self._lock = threading.Lock()
         self._discovered_devices = {}  # ip -> {"ip", "mac", "name", "last_seen"}
@@ -246,6 +262,10 @@ class BackgroundScanner:
     def update_trusted_macs(self, trusted_macs):
         with self._lock:
             self.trusted_macs = set(mac.lower() for mac in (trusted_macs or []))
+
+    def update_permanent_exclusions(self, permanent_exclusions):
+        with self._lock:
+            self.permanent_exclusions = set(str(v).lower() for v in (permanent_exclusions or []))
 
     def seed_devices(self, devices):
         """Preload already-known devices into registry."""
@@ -272,6 +292,8 @@ class BackgroundScanner:
                 ip: dict(info)
                 for ip, info in self._discovered_devices.items()
                 if info.get("mac", "").lower() not in self.trusted_macs
+                and info.get("mac", "").lower() not in self.permanent_exclusions
+                and str(ip).lower() not in self.permanent_exclusions
             }
 
     def pop_new_active_targets(self):
@@ -282,6 +304,10 @@ class BackgroundScanner:
                 if not info:
                     continue
                 if info.get("mac", "").lower() in self.trusted_macs:
+                    continue
+                if info.get("mac", "").lower() in self.permanent_exclusions:
+                    continue
+                if str(ip).lower() in self.permanent_exclusions:
                     continue
                 new_targets[ip] = dict(info)
             self._new_active_ips.clear()
@@ -301,6 +327,10 @@ class BackgroundScanner:
                     ip = client.get("ip")
                     mac = (client.get("mac") or "").lower()
                     if not ip or not mac:
+                        continue
+
+                    # Permanent exclusions: self MAC/IP, gateway IP/MAC, and explicit trusted identities
+                    if mac in self.permanent_exclusions or str(ip).lower() in self.permanent_exclusions:
                         continue
 
                     is_new = ip not in self._discovered_devices
@@ -324,6 +354,7 @@ class ARPSpoofer:
     def __init__(self, target, gateway, gatekeeper=None):
         self.target, self.gateway = target, gateway
         self.gatekeeper = gatekeeper
+        self.my_mac = scapy.get_if_hwaddr(get_default_interface()).lower()
         self.spoofing = threading.Event()
 
     def send_spoof(self, target_ip, target_mac, spoof_ip):
@@ -331,6 +362,9 @@ class ARPSpoofer:
         trusted_macs = self.gatekeeper.get_trusted_macs() if self.gatekeeper else set()
         normalized_mac = (target_mac or "").lower()
         if not normalized_mac:
+            return
+        # Final self-protection guard: never spoof our own interface MAC
+        if normalized_mac == self.my_mac:
             return
         if normalized_mac in trusted_macs:
             return
@@ -567,6 +601,62 @@ class TrafficMonitor:
 # -------------------------
 # Connection Tracker
 # -------------------------
+class DnsSniffer:
+    """Non-blocking DNS sniffer: capture thread + processing queue thread."""
+
+    def __init__(self, interface, dns_callback, stop_event, bpf_filter="udp port 53", queue_size=4096):
+        self.interface = interface
+        self.dns_callback = dns_callback
+        self.stop_event = stop_event
+        self.bpf_filter = bpf_filter
+        self.packet_queue = queue.Queue(maxsize=queue_size)
+        self._threads = []
+
+    def start(self):
+        sniff_thread = threading.Thread(target=self._sniff_loop, daemon=True)
+        worker_thread = threading.Thread(target=self._process_loop, daemon=True)
+        self._threads = [sniff_thread, worker_thread]
+        sniff_thread.start()
+        worker_thread.start()
+
+    def _sniff_loop(self):
+        try:
+            scapy.sniff(
+                iface=self.interface,
+                filter=self.bpf_filter,
+                prn=self._enqueue_packet,
+                store=0,
+                count=0,
+                stop_filter=lambda _: self.stop_event.is_set(),
+            )
+        except Exception as e:
+            print(colored(f"[!] Scapy sniffing error: {e}", "yellow"))
+
+    def _enqueue_packet(self, packet):
+        try:
+            self.packet_queue.put_nowait(packet)
+        except queue.Full:
+            # Drop oldest pressure in bursts: favor forwarding over tracking latency.
+            pass
+
+    def _process_loop(self):
+        while not self.stop_event.is_set():
+            try:
+                packet = self.packet_queue.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            try:
+                self.dns_callback(packet)
+            except Exception:
+                pass
+
+    def stop(self):
+        self.stop_event.set()
+        for thread in self._threads:
+            if thread.is_alive():
+                thread.join(timeout=1)
+
+
 class ConnectionTracker:
     """Track active connections and DNS queries for each device"""
     
@@ -574,6 +664,7 @@ class ConnectionTracker:
         self.devices = devices
         self.iface = iface
         self.gatekeeper = gatekeeper
+        self.my_mac = scapy.get_if_hwaddr(self.iface).lower()
         # Track with timestamps for recency
         self.connections = defaultdict(lambda: {
             "domains": deque(maxlen=50),  # (timestamp, domain)
@@ -584,24 +675,18 @@ class ConnectionTracker:
         self.dns_cache = {}  # IP -> domain name cache
         self.running = threading.Event()
         self.lock = threading.Lock()
+        self._dns_sniffer = None
         
     def start(self):
         """Start packet sniffing"""
         self.running.clear()
-        threading.Thread(target=self._sniff_packets, daemon=True).start()
-        
-    def _sniff_packets(self):
-        """Capture DNS packets with Scapy callback and trusted-device filtering."""
-        try:
-            scapy.sniff(
-                iface=self.iface,
-                store=False,
-                filter="udp port 53",
-                prn=self._packet_callback,
-                stop_filter=lambda _: self.running.is_set(),
-            )
-        except Exception as e:
-            print(colored(f"[!] Scapy sniffing error: {e}", "yellow"))
+        self._dns_sniffer = DnsSniffer(
+            interface=self.iface,
+            dns_callback=self._packet_callback,
+            stop_event=self.running,
+            bpf_filter="udp port 53",
+        )
+        self._dns_sniffer.start()
 
     def _packet_callback(self, packet):
         """Drop trusted devices immediately, then process DNS query packet."""
@@ -610,19 +695,30 @@ class ConnectionTracker:
                 return
 
             src_mac = packet[scapy.Ether].src.lower()
-            dst_mac = packet[scapy.Ether].dst.lower()
 
-            # Gatekeeper exclusion: trusted devices are never processed
-            if self.gatekeeper and not self.gatekeeper.should_process_packet(src_mac, dst_mac):
+            # Self-exclusion: do not track DNS queries we originate
+            if src_mac == self.my_mac:
+                return
+
+            # Gatekeeper exclusion: for DNS tracking, only source MAC decides trust.
+            # In MITM mode, destination MAC is often our own interface MAC.
+            if self.gatekeeper and self.gatekeeper.is_trusted_mac(src_mac):
                 return
 
             if not packet.haslayer(scapy.IP):
                 return
 
             src_ip = packet[scapy.IP].src
+            dst_ip = packet[scapy.IP].dst
 
-            # Only track DNS queries from monitored devices
-            if src_ip not in self.devices:
+            # Track activity for monitored device whether packet is query (src)
+            # or response (dst) direction.
+            device_ip = None
+            if src_ip in self.devices:
+                device_ip = src_ip
+            elif dst_ip in self.devices:
+                device_ip = dst_ip
+            else:
                 return
 
             if not packet.haslayer(scapy.DNSQR):
@@ -636,11 +732,13 @@ class ConnectionTracker:
 
             current_time = time.time()
             with self.lock:
-                self.connections[src_ip]["last_activity"] = current_time
+                self.connections[device_ip]["last_activity"] = current_time
                 # Avoid duplicate entries in recent history
-                recent = [d for _, d in list(self.connections[src_ip]["domains"])[-10:]]
+                recent = [d for _, d in list(self.connections[device_ip]["domains"])[-10:]]
                 if domain not in recent:
-                    self.connections[src_ip]["domains"].append((current_time, domain))
+                    self.connections[device_ip]["domains"].append((current_time, domain))
+        except (IndexError, AttributeError):
+            return
         except Exception:
             pass
 
@@ -768,6 +866,8 @@ class ConnectionTracker:
     def stop(self):
         """Stop tracking"""
         self.running.set()
+        if self._dns_sniffer:
+            self._dns_sniffer.stop()
 
 # -------------------------
 # Bandwidth Controller
