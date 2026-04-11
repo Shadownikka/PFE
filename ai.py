@@ -16,7 +16,7 @@ import termios
 from termcolor import colored
 from tool import (
     Config, has_root, get_gateway_ip, get_default_interface, 
-    get_subnet_cidr, enable_ip_forwarding, discover_clients,
+    get_subnet_cidr, enable_ip_forwarding, disable_ip_forwarding, discover_clients,
     TrafficMonitor, BandwidthController, ConnectionTracker,
     discover_devices, NetworkGatekeeper, BackgroundScanner
 )
@@ -146,9 +146,11 @@ class NetMindAI:
         enable_ip_forwarding()
         
         self.iface = get_default_interface()
+        self.my_mac = scapy.get_if_hwaddr(self.iface).lower()
+        self.my_ip = scapy.get_if_addr(self.iface)
         self.gateway_ip = get_gateway_ip()
         self.subnet = get_subnet_cidr(self.iface)
-        self.gateway_mac = scapy.getmacbyip(self.gateway_ip)
+        self.gateway_mac = (scapy.getmacbyip(self.gateway_ip) or "").lower()
         
         if not self.gateway_mac:
             print(colored(f"[!] Could not resolve gateway MAC", "red"))
@@ -163,7 +165,11 @@ class NetMindAI:
         self.metrics_exporter = None  # Prometheus metrics exporter
         self.running = False
         self.old_terminal_settings = None  # Store terminal settings
-        self.gatekeeper = NetworkGatekeeper()
+        self.permanent_exclusions = [self.my_mac, self.my_ip, self.gateway_ip, self.gateway_mac]
+        self.gatekeeper = NetworkGatekeeper(
+            trusted_macs=[self.my_mac, self.gateway_mac],
+            trusted_ips=[self.my_ip, self.gateway_ip],
+        )
         self.background_scanner = None
         
         # Setup signal handlers
@@ -194,13 +200,18 @@ class NetMindAI:
             print(f"{idx:<4} {dev['ip']:<16} {dev['mac']:<20} {dev.get('hostname', 'Unknown'):<28}")
 
         trusted_macs = self._select_trusted_devices(discovered)
-        self.gatekeeper = NetworkGatekeeper(trusted_macs=trusted_macs)
+        merged_trusted_macs = sorted(set(trusted_macs + [self.my_mac, self.gateway_mac]))
+        self.gatekeeper = NetworkGatekeeper(
+            trusted_macs=merged_trusted_macs,
+            trusted_ips=[self.my_ip, self.gateway_ip],
+        )
+        self.permanent_exclusions = [self.my_mac, self.my_ip, self.gateway_ip, self.gateway_mac]
 
         self.devices = {}
         for _, c in discovered.items():
             if c["ip"] == self.gateway_ip:
                 continue
-            if self.gatekeeper.is_trusted_mac(c["mac"]):
+            if self.gatekeeper.is_trusted_mac(c["mac"]) or self.gatekeeper.is_trusted_ip(c["ip"]):
                 continue
             self.devices[c["ip"]] = {
                 "mac": c["mac"],
@@ -295,6 +306,7 @@ class NetMindAI:
             interface=self.iface,
             subnet_cidr=self.subnet,
             trusted_macs=self.gatekeeper.get_trusted_macs(),
+            permanent_exclusions=self.permanent_exclusions,
             scan_interval=Config.DISCOVERY_INTERVAL,
         )
         self.background_scanner.seed_devices(self.devices)
@@ -454,6 +466,7 @@ class NetMindAI:
 
         # Keep trusted filter aligned with latest gatekeeper state
         self.background_scanner.update_trusted_macs(self.gatekeeper.get_trusted_macs())
+        self.background_scanner.update_permanent_exclusions(self.permanent_exclusions)
 
         # Handle only newly discovered active targets for lightweight updates
         new_targets = self.background_scanner.pop_new_active_targets()
@@ -464,7 +477,7 @@ class NetMindAI:
                 continue
 
             mac = info.get("mac", "")
-            if self.gatekeeper and self.gatekeeper.is_trusted_mac(mac):
+            if self.gatekeeper and (self.gatekeeper.is_trusted_mac(mac) or self.gatekeeper.is_trusted_ip(ip)):
                 continue
 
             self.devices[ip] = {
@@ -1135,5 +1148,8 @@ class NetMindAI:
                 self.controller.cleanup()
             except Exception as e:
                 print(colored(f"[!] Cleanup error: {e}", "yellow"))
+        
+        # Restore Kernel Routing Configuration
+        disable_ip_forwarding()
         
         print(colored("\n[✓] System stopped. Network restored.", "green"))

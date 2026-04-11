@@ -9,6 +9,7 @@ Kali Linux / Ubuntu - Production Ready
 import time
 from termcolor import colored
 from ai import NetMindAI, Config
+from tool import enable_ip_forwarding
 
 # -------------------------
 # Main
@@ -25,6 +26,9 @@ def main():
 ╚══════════════════════════════════════════════════════════════╝
     """, "cyan", attrs=["bold"]))
     
+    # Kernel-level forwarding (do NOT forward in Python user-space)
+    enable_ip_forwarding()
+
     ai = NetMindAI()
     # Background discovery scanner interval (seconds)
     Config.DISCOVERY_INTERVAL = 10

