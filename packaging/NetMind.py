@@ -9,6 +9,7 @@ Kali Linux / Ubuntu - Production Ready
 import time
 from termcolor import colored
 from ai import NetMindAI, Config
+from tool import enable_ip_forwarding
 
 # -------------------------
 # Main
@@ -25,7 +26,13 @@ def main():
 ╚══════════════════════════════════════════════════════════════╝
     """, "cyan", attrs=["bold"]))
     
+    # Kernel-level forwarding (do NOT forward in Python user-space)
+    enable_ip_forwarding()
+
     ai = NetMindAI()
+    # Background discovery scanner interval (seconds)
+    Config.DISCOVERY_INTERVAL = 10
+    print(colored(f"[✓] Background discovery enabled ({Config.DISCOVERY_INTERVAL}s interval)", "green"))
     
     while True:
         ai.scan_network()
@@ -40,8 +47,8 @@ def main():
         print(colored("\n" + "="*70, "yellow"))
         print(colored("⚙️  MODE SELECTION", "yellow", attrs=["bold"]))
         print(colored("="*70, "yellow"))
-        print("\n  [1] 🤖 Automatic AI Mode (AI manages everything)")
-        print("  [2] 🎮 Manual + AI Mode (You control, AI assists)")
+        print("\n  [1] 🤖 Automatic Mode (manages everything)")
+        print("  [2] 🎮 Manual Mode (You control)")
         print("  [3] 🔄 Rescan Network")
         print("  [4] ❌ Cancel")
         
@@ -49,7 +56,7 @@ def main():
         
         if mode == '1':
             Config.AUTO_LIMIT_ENABLED = True
-            print(colored("\n[+] Starting in AUTOMATIC AI mode...", "cyan"))
+            print(colored("\n[+] Starting in AUTOMATIC mode...", "cyan"))
             time.sleep(2)
             
             try:
@@ -70,7 +77,7 @@ def main():
                     break
         elif mode == '2':
             Config.AUTO_LIMIT_ENABLED = False
-            print(colored("\n[+] Starting in MANUAL + AI mode...", "cyan"))
+            print(colored("\n[+] Starting in MANUAL mode...", "cyan"))
             print(colored("[!] Press 'm' key during monitoring to access menu", "yellow"))
             time.sleep(2)
             

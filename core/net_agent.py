@@ -27,7 +27,7 @@ class NetMindAgent:
         self.controller = controller
         self.config = config
         self.client = ollama.Client(host=ollama_host)
-        self.model = 'llama3.2'  # Updated to Llama 3.2 for better performance
+        self.model = 'llama3.1'  # Updated to Llama 3.2 for better performance
         
         # Safety: IPs that should NEVER be limited
         self.protected_ips = set()

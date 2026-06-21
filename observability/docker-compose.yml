@@ -1,37 +1,7 @@
-version: '3.8'
 
 services:
-  # Main NetMind application container
-  netmind-core:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: netmind-core
-    privileged: true
-    network_mode: host
-    environment:
-      - OLLAMA_HOST=http://localhost:11435
-    volumes:
-      - .:/app
-    stdin_open: true
-    tty: true
-    depends_on:
-      - ai-agent
-    restart: unless-stopped
 
-  # Separate AI agent container with Ollama + Llama 3.2
-  ai-agent:
-    build:
-      context: .
-      dockerfile: Dockerfile.ai-agent
-    container_name: netmind-ai-agent
-    ports:
-      - "11435:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    restart: unless-stopped
-
-  # Prometheus for metrics collection
+  # ── Prometheus — metrics collection ─────────────────────────────
   prometheus:
     image: prom/prometheus:latest
     container_name: netmind-prometheus
@@ -44,15 +14,12 @@ services:
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
-      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--storage.tsdb.retention.time=7d'
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
-    depends_on:
-      - netmind-core
 
-  # Grafana for visualization
+  # ── Grafana — dashboards ─────────────────────────────────────────
   grafana:
     image: grafana/grafana:latest
     container_name: netmind-grafana
@@ -67,12 +34,11 @@ services:
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
       - GF_USERS_ALLOW_SIGN_UP=false
-      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+      - GF_SERVER_ROOT_URL=http://localhost:3000
     restart: unless-stopped
     depends_on:
       - prometheus
 
 volumes:
-  ollama_data:
   prometheus_data:
   grafana_data:
