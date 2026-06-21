@@ -47,8 +47,8 @@ def main():
         print(colored("\n" + "="*70, "yellow"))
         print(colored("⚙️  MODE SELECTION", "yellow", attrs=["bold"]))
         print(colored("="*70, "yellow"))
-        print("\n  [1] 🤖 Automatic AI Mode (AI manages everything)")
-        print("  [2] 🎮 Manual + AI Mode (You control, AI assists)")
+        print("\n  [1] 🤖 Automatic Mode (manages everything)")
+        print("  [2] 🎮 Manual Mode (You control)")
         print("  [3] 🔄 Rescan Network")
         print("  [4] ❌ Cancel")
         
@@ -56,7 +56,7 @@ def main():
         
         if mode == '1':
             Config.AUTO_LIMIT_ENABLED = True
-            print(colored("\n[+] Starting in AUTOMATIC AI mode...", "cyan"))
+            print(colored("\n[+] Starting in AUTOMATIC mode...", "cyan"))
             time.sleep(2)
             
             try:
@@ -77,7 +77,7 @@ def main():
                     break
         elif mode == '2':
             Config.AUTO_LIMIT_ENABLED = False
-            print(colored("\n[+] Starting in MANUAL + AI mode...", "cyan"))
+            print(colored("\n[+] Starting in MANUAL mode...", "cyan"))
             print(colored("[!] Press 'm' key during monitoring to access menu", "yellow"))
             time.sleep(2)
             

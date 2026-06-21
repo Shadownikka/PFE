@@ -1,6 +1,21 @@
-scapy
-netifaces
-termcolor
-ollama
-prometheus-client==0.19.0
-git+https://github.com/kti/python-netfilterqueue
+# NetMind — Native Desktop App Dependencies
+# Install: pip install -r requirements.txt
+
+# ── Networking ───────────────────────────────
+scapy>=2.5.0
+netifaces>=0.11.0
+termcolor>=2.4.0
+
+# ── AI / LLM ─────────────────────────────────
+ollama>=0.1.8
+
+# ── Voice ────────────────────────────────────
+SpeechRecognition>=3.10.0
+PyAudio>=0.2.13
+
+# ── Metrics ──────────────────────────────────
+prometheus-client>=0.19.0
+
+# ── Desktop UI ───────────────────────────────
+PyQt6>=6.6.0
+PyQt6-Qt6>=6.6.0

@@ -909,20 +909,33 @@ class BandwidthController:
         self.spoofers = {}
         self.gateway = None
         self.gatekeeper = None
-        self._setup_tc()
+        # Don't install any TC qdisc on init — let traffic flow at full speed
+        # TC is only set up when a limit is actually applied
+        self._tc_active = False
 
-    def _setup_tc(self):
-        """Initialize TC (traffic control) with lightweight fq_codel"""
+    def _ensure_htb_root(self):
+        """Install HTB root qdisc ONLY when first limit is needed."""
+        if self._tc_active:
+            return True
         try:
-            subprocess.run(f"tc qdisc del dev {self.iface} root 2>/dev/null", shell=True, stderr=subprocess.DEVNULL)
-            result = subprocess.run(f"tc qdisc add dev {self.iface} root fq_codel", shell=True, capture_output=True, text=True)
-            if result.returncode != 0:
-                print(colored(f"[!] Failed to setup TC qdisc: {result.stderr}", "red"))
-                return False
+            subprocess.run(f"tc qdisc del dev {self.iface} root 2>/dev/null",
+                           shell=True, stderr=subprocess.DEVNULL)
+            # Root HTB with extremely high default so unlimitted devices are unaffected
+            subprocess.run(f"tc qdisc add dev {self.iface} root handle 1: htb default 10",
+                           shell=True, capture_output=True, text=True)
+            subprocess.run(f"tc class add dev {self.iface} parent 1: classid 1:10 htb rate 1000mbit ceil 1000mbit",
+                           shell=True, capture_output=True, text=True)
+            self._tc_active = True
             return True
         except Exception as e:
             print(colored(f"[!] TC setup failed: {e}", "red"))
             return False
+
+    def _remove_htb_root(self):
+        """Remove HTB root when no limits remain — full speed restored."""
+        subprocess.run(f"tc qdisc del dev {self.iface} root 2>/dev/null",
+                       shell=True, stderr=subprocess.DEVNULL)
+        self._tc_active = False
 
     def set_gateway(self, gateway):
         """Set gateway for ARP spoofing"""
@@ -971,21 +984,22 @@ class BandwidthController:
         if ip in self.limits:
             self.remove_limit(ip)
         
-        # If no limits are active, switch from fq_codel to HTB for rate limiting
-        if not self.limits:
-            subprocess.run(f"tc qdisc del dev {self.iface} root 2>/dev/null", shell=True, stderr=subprocess.DEVNULL)
-            subprocess.run(f"tc qdisc add dev {self.iface} root handle 1: htb default 10", shell=True, capture_output=True, text=True)
-            subprocess.run(f"tc class add dev {self.iface} parent 1: classid 1:10 htb rate 1000mbit", shell=True, capture_output=True, text=True)
+        # Ensure HTB root is installed (only created once, on first limit)
+        if not self._ensure_htb_root():
+            return False
         
         mark = str((hash(ip) % 200) + 50)
         
-        # Calculate burst (at least 2KB or 1.5x rate for smoother traffic)
-        burst_down = max(int(down_kbps * 1.5 / 8), 2000)
-        burst_up = max(int(up_kbps * 1.5 / 8), 2000)
+        # Convert KB/s to kbit/s (×8) for TC rate commands
+        down_kbit = down_kbps * 8
+        up_kbit   = up_kbps * 8
+        # Burst: at least 15KB for smooth TCP, or 1.5× the rate in bytes
+        burst_down = max(int(down_kbps * 1.5), 15000)
+        burst_up   = max(int(up_kbps * 1.5),   15000)
         
         try:
             # Upload limiting using TC (traffic FROM device)
-            result = subprocess.run(f"tc class add dev {self.iface} parent 1: classid 1:{mark} htb rate {up_kbps}kbit burst {burst_up}b", 
+            result = subprocess.run(f"tc class add dev {self.iface} parent 1: classid 1:{mark} htb rate {up_kbit}kbit ceil {up_kbit}kbit burst {burst_up}b", 
                                    shell=True, capture_output=True, text=True)
             if result.returncode != 0:
                 print(colored(f"[!] Failed to add upload class for {ip}: {result.stderr.strip()}", "red"))
@@ -1010,7 +1024,7 @@ class BandwidthController:
             # Use a different mark for download (mark + 200)
             mark_down = str(int(mark) + 200)
             
-            result = subprocess.run(f"tc class add dev {self.iface} parent 1: classid 1:{mark_down} htb rate {down_kbps}kbit burst {burst_down}b", 
+            result = subprocess.run(f"tc class add dev {self.iface} parent 1: classid 1:{mark_down} htb rate {down_kbit}kbit ceil {down_kbit}kbit burst {burst_down}b", 
                                    shell=True, capture_output=True, text=True)
             if result.returncode != 0:
                 print(colored(f"[!] Failed to add download class for {ip}: {result.stderr.strip()}", "red"))
@@ -1087,6 +1101,10 @@ class BandwidthController:
             
             del self.limits[ip]
             print(colored(f"[✓] Removed limit for {ip}", "green"))
+            
+            # If no limits remain, remove HTB entirely → full speed
+            if not self.limits:
+                self._remove_htb_root()
 
     def cleanup(self):
         """Cleanup all rules"""

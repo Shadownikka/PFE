@@ -500,7 +500,7 @@ class NetMindAI:
         os.system('clear')
         print(colored("="*90, "cyan"))
         print(colored("🤖 NetMind - Intelligent Bandwidth Management System", "green", attrs=["bold"]))
-        ai_status = colored("AI: ON", "green") if Config.AUTO_LIMIT_ENABLED else colored("AI: OFF", "red")
+        ai_status = colored("Auto Balance: ON", "green") if Config.AUTO_LIMIT_ENABLED else colored("Auto Balance: OFF", "red")
         print(colored(f"Interface: {self.iface} | Gateway: {self.gateway_ip} | {ai_status}", "cyan"))
         print(colored("="*90, "cyan"))
         

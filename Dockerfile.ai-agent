@@ -1,4 +1,4 @@
-# AI Agent Container - Isolated Ollama + Llama 3.2
+# AI Agent Container — Isolated Ollama + Llama 3.2
 FROM ollama/ollama:latest
 
 # Install Python and dependencies
@@ -8,19 +8,31 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
+# Prevent .pyc files
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
 WORKDIR /app
 
 # Copy AI agent requirements
 COPY requirements-agent.txt .
 RUN pip3 install --no-cache-dir --break-system-packages -r requirements-agent.txt
 
-# Copy AI agent code
+# Copy all AI-related modules (new ones included)
 COPY net_agent.py .
 COPY tool.py .
+COPY onboarding.py .
+COPY autopilot.py .
+COPY voice_handler.py .
 
 # Expose Ollama API port
 EXPOSE 11434
 
-# Start Ollama service and keep container running
-ENTRYPOINT ["/bin/bash", "-c", "ollama serve & sleep 10 && ollama pull llama3.2 && wait"]
+# Start Ollama, pull model, stay alive — clean __pycache__ on exit
+ENTRYPOINT ["/bin/bash", "-c", "\
+    ollama serve & \
+    sleep 8 && \
+    ollama pull llama3.2 && \
+    wait; \
+    find /app -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null; \
+    exit 0"]

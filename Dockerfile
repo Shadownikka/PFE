@@ -1,34 +1,26 @@
-# Use Python base image
 FROM python:3.11-slim
 
-# Install system dependencies for networking tools
 RUN apt-get update && apt-get install -y \
-    build-essential \
-    libnetfilter-queue-dev \
-    libpcap-dev \
-    tcpdump \
-    iptables \
-    iproute2 \
-    iw \
-    git \
+    build-essential libnetfilter-queue-dev libpcap-dev \
+    tcpdump iptables iproute2 iw net-tools curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
 WORKDIR /app
 
-# Copy requirements first for better caching
+# AI agent requirements only (networking runs natively on host)
+COPY requirements-agent.txt .
+RUN pip install --no-cache-dir -r requirements-agent.txt \
+    && pip install --no-cache-dir flask flask-cors SpeechRecognition
+
 COPY requirements.txt .
-COPY NetMind_Interface/requirements.txt ./interface-requirements.txt
-
-# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install --no-cache-dir -r interface-requirements.txt
 
-# Copy the rest of the application
 COPY . .
 
-# Expose port for the web interface
-EXPOSE 9000 9001
+# No web ports — desktop app runs on host, not in container
+EXPOSE 9001
 
-# Keep container running for manual execution
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
 CMD ["bash"]
