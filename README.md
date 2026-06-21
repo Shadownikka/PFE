@@ -185,7 +185,37 @@ The NetMind interface is split into several areas:
 
 ## Installation
 
-### Step 1 — Install Ollama
+### ⚡ One Command — Full Automatic Setup
+
+Clone the repo and run the setup script. It handles **everything**:
+
+```bash
+git clone https://github.com/Shadownikka/PFE.git
+cd PFE
+sudo bash setup.sh
+```
+
+**What `setup.sh` does automatically:**
+
+| Step | What Happens |
+|------|-------------|
+| 1 | Detects your Linux distro (Ubuntu, Debian, Kali, Fedora, Arch, Mint…) |
+| 2 | Installs all required system packages |
+| 3 | Installs all Python dependencies |
+| 4 | Installs Docker + Docker Compose |
+| 5 | Installs Ollama (local AI runtime) |
+| 6 | Downloads the Llama 3.1 AI model (~4.9 GB) |
+| 7 | Fixes file permissions and git configuration |
+| 8 | Runs a full health check and offers to launch the app |
+
+> The script asks you at the end: **"Launch NetMind now? [y/N]"** — press `y` to start immediately.
+
+---
+
+### Manual Installation (Step by Step)
+
+If you prefer to install manually or something failed in the auto setup:
+
 
 Ollama is the local AI runtime that powers NetMind's intelligence.
 
