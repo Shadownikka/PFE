@@ -9,9 +9,10 @@ termcolor>=2.4.0
 # ── AI / LLM ─────────────────────────────────
 ollama>=0.1.8
 
-# ── Voice ────────────────────────────────────
+# ── Voice (optional — experimental feature) ─
 SpeechRecognition>=3.10.0
-PyAudio>=0.2.13
+# PyAudio is installed via system package manager (python3-pyaudio)
+# to avoid portaudio.h build errors. Do not add it here.
 
 # ── Metrics ──────────────────────────────────
 prometheus-client>=0.19.0
