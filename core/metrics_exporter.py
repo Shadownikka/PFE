@@ -50,11 +50,13 @@ class MetricsExporter:
         self.port = port
         self.running = False
         self.update_thread = None
+        self.startup_time = None
         
     def start(self):
         """Start Prometheus metrics HTTP server"""
         try:
             start_http_server(self.port)
+            self.startup_time = time.time()
             print(f"[+] Metrics server started on port {self.port}")
             print(f"    Access metrics at: http://localhost:{self.port}/metrics")
             
@@ -84,7 +86,11 @@ class MetricsExporter:
     
     def update_metrics(self):
         """Update all Prometheus metrics from NetMind data"""
-        if not self.ai.monitor or not self.ai.devices:
+        # Update uptime regardless of device state
+        if self.startup_time:
+            monitoring_uptime.set(time.time() - self.startup_time)
+
+        if not self.ai.monitor or self.ai.devices is None:
             return
         
         try:
@@ -103,7 +109,13 @@ class MetricsExporter:
             # Update per-device metrics
             for ip, device_info in self.ai.devices.items():
                 mac = device_info.get('mac', 'unknown')
-                hostname = device_info.get('hostname', ip.replace('.', '_'))
+                # Devices dict stores hostname under 'name' key (set in ai.py scan_network)
+                # Fall back through: 'hostname' (legacy) → 'name' → ip-based fallback
+                hostname = (
+                    device_info.get('hostname')
+                    or device_info.get('name')
+                    or ip.replace('.', '_')
+                )
                 
                 # Get bandwidth stats
                 device_stats = stats.get(ip, {'up': 0, 'down': 0})
@@ -115,8 +127,9 @@ class MetricsExporter:
                 bandwidth_upload.labels(ip=ip, mac=mac, hostname=hostname).set(up_kbps)
                 
                 # Get total bandwidth from iptables counters
-                total_down_mb = totals[ip]['down'] / (1024 * 1024)
-                total_up_mb = totals[ip]['up'] / (1024 * 1024)
+                ip_totals = totals.get(ip, {'down': 0, 'up': 0})
+                total_down_mb = ip_totals['down'] / (1024 * 1024)
+                total_up_mb = ip_totals['up'] / (1024 * 1024)
                 bandwidth_total_download.labels(ip=ip, mac=mac, hostname=hostname).set(total_down_mb)
                 bandwidth_total_upload.labels(ip=ip, mac=mac, hostname=hostname).set(total_up_mb)
                 

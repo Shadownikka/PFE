@@ -20,7 +20,10 @@
   "liveNow": true,
   "panels": [
     {
-      "datasource": "Prometheus",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -73,17 +76,23 @@
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "datasource": "Prometheus",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "netmind_ai_inference_time_seconds",
           "refId": "A"
         }
       ],
-      "title": "🤖 AI Agent Performance (Llama 3.2)",
+      "title": "\ud83e\udd16 AI Agent Performance (Llama 3.2)",
       "type": "gauge",
-      "description": "Real-time AI inference time. RED ALERT if ≥30s"
+      "description": "Real-time AI inference time. RED ALERT if \u226530s"
     },
     {
-      "datasource": "Prometheus",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -126,16 +135,22 @@
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "datasource": "Prometheus",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "netmind_active_devices_total",
           "refId": "A"
         }
       ],
-      "title": "📡 Active Devices",
+      "title": "\ud83d\udce1 Active Devices",
       "type": "stat"
     },
     {
-      "datasource": "Prometheus",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -182,16 +197,22 @@
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "datasource": "Prometheus",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "netmind_limited_devices_total",
           "refId": "A"
         }
       ],
-      "title": "⚠️ Limited Devices",
+      "title": "\u26a0\ufe0f Limited Devices",
       "type": "stat"
     },
     {
-      "datasource": "Prometheus",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -238,16 +259,22 @@
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "datasource": "Prometheus",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "netmind_blocked_devices_total",
           "refId": "A"
         }
       ],
-      "title": "🛑 Blocked Devices",
+      "title": "\ud83d\uded1 Blocked Devices",
       "type": "stat"
     },
     {
-      "datasource": "Prometheus",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -354,24 +381,33 @@
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "datasource": "Prometheus",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "netmind_network_total_download_kbps",
           "legendFormat": "Download",
           "refId": "A"
         },
         {
-          "datasource": "Prometheus",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "netmind_network_total_upload_kbps",
           "legendFormat": "Upload",
           "refId": "B"
         }
       ],
-      "title": "📊 Panel 1: Real-Time Bandwidth Analytics",
+      "title": "\ud83d\udcca Panel 1: Real-Time Bandwidth Analytics",
       "type": "timeseries",
       "description": "Total network traffic monitored by NetMind AI"
     },
     {
-      "datasource": "Prometheus",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -447,17 +483,23 @@
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "datasource": "Prometheus",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "netmind_bandwidth_download_kbps",
           "legendFormat": "{{hostname}} ({{ip}})",
           "refId": "A"
         }
       ],
-      "title": "📥 Device Download Bandwidth",
+      "title": "\ud83d\udce5 Device Download Bandwidth",
       "type": "timeseries"
     },
     {
-      "datasource": "Prometheus",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -533,17 +575,23 @@
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "datasource": "Prometheus",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "netmind_bandwidth_upload_kbps",
           "legendFormat": "{{hostname}} ({{ip}})",
           "refId": "A"
         }
       ],
-      "title": "📤 Device Upload Bandwidth",
+      "title": "\ud83d\udce4 Device Upload Bandwidth",
       "type": "timeseries"
     },
     {
-      "datasource": "Prometheus",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -562,17 +610,17 @@
                 "0": {
                   "color": "green",
                   "index": 0,
-                  "text": "🟢 Normal"
+                  "text": "\ud83d\udfe2 Normal"
                 },
                 "1": {
                   "color": "yellow",
                   "index": 1,
-                  "text": "⚠️ Limited"
+                  "text": "\u26a0\ufe0f Limited"
                 },
                 "2": {
                   "color": "red",
                   "index": 2,
-                  "text": "🛑 Blocked"
+                  "text": "\ud83d\uded1 Blocked"
                 }
               },
               "type": "value"
@@ -634,28 +682,37 @@
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "datasource": "Prometheus",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "netmind_device_status",
           "format": "table",
           "instant": true,
           "refId": "A"
         },
         {
-          "datasource": "Prometheus",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "netmind_bandwidth_download_kbps",
           "format": "table",
           "instant": true,
           "refId": "B"
         },
         {
-          "datasource": "Prometheus",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "netmind_bandwidth_upload_kbps",
           "format": "table",
           "instant": true,
           "refId": "C"
         }
       ],
-      "title": "🔍 Panel 3: Network Health Status - Device Table",
+      "title": "\ud83d\udd0d Panel 3: Network Health Status - Device Table",
       "transformations": [
         {
           "id": "merge",
@@ -692,7 +749,10 @@
       "description": "Real-time device status monitored by AI"
     },
     {
-      "datasource": "Prometheus",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -766,23 +826,32 @@
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "datasource": "Prometheus",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "rate(netmind_limits_applied_total[5m])",
           "legendFormat": "Limits Applied",
           "refId": "A"
         },
         {
-          "datasource": "Prometheus",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "rate(netmind_limits_removed_total[5m])",
           "legendFormat": "Limits Removed",
           "refId": "B"
         }
       ],
-      "title": "🎯 AI Agent Actions (Rate)",
+      "title": "\ud83c\udfaf AI Agent Actions (Rate)",
       "type": "timeseries"
     },
     {
-      "datasource": "Prometheus",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -847,12 +916,15 @@
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "datasource": "Prometheus",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "netmind_ai_agent_status",
           "refId": "A"
         }
       ],
-      "title": "🤖 AI Agent Status",
+      "title": "\ud83e\udd16 AI Agent Status",
       "type": "stat"
     }
   ],

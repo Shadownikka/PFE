@@ -1,715 +1,479 @@
-# 🧠 NetMind — AI-Powered Network Manager
+<div align="center">
 
-> **A native desktop application that lets you see, control, and intelligently manage every device on your home or office network — powered by a local AI that runs entirely on your machine.**
+<img src="assets/netmind.png" width="120" alt="NetMind Logo" />
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![PyQt6](https://img.shields.io/badge/UI-PyQt6-41CD52)
-![AI](https://img.shields.io/badge/AI-Llama%203.1%20%28Local%29-orange)
-![Platform](https://img.shields.io/badge/Platform-Linux-yellow)
-![License](https://img.shields.io/badge/License-MIT-green)
+# NetMind
 
----
+### AI-Powered Network Manager for Linux
 
-## Table of Contents
+**See every device. Control every connection. Let AI do the thinking.**
 
-- [What Is NetMind?](#what-is-netmind)
-- [Key Features](#key-features)
-- [How It Works (Simple Version)](#how-it-works-simple-version)
-- [Screenshots & UI Overview](#screenshots--ui-overview)
-- [System Requirements](#system-requirements)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Using the App](#using-the-app)
-  - [First Launch & Onboarding](#first-launch--onboarding)
-  - [Dashboard Overview](#dashboard-overview)
-  - [Device List](#device-list)
-  - [Manual Controls](#manual-controls)
-  - [Trusted Devices](#trusted-devices)
-  - [AutoPilot (AI Mode)](#autopilot-ai-mode)
-  - [AI Chat Assistant](#ai-chat-assistant)
-  - [Grafana Dashboard](#grafana-dashboard)
-- [Project Structure](#project-structure)
-- [Configuration](#configuration)
-- [Prometheus Metrics](#prometheus-metrics)
-- [Troubleshooting](#troubleshooting)
-- [FAQ](#faq)
-- [License](#license)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![PyQt6](https://img.shields.io/badge/UI-PyQt6-41CD52?style=for-the-badge&logo=qt&logoColor=white)](https://riverbankcomputing.com/software/pyqt/)
+[![AI](https://img.shields.io/badge/AI-Llama%203.1%20%28100%25%20Local%29-FF6B35?style=for-the-badge&logo=meta&logoColor=white)](https://ollama.com)
+[![Platform](https://img.shields.io/badge/Platform-Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)](https://kernel.org)
+[![Docker](https://img.shields.io/badge/Grafana-Prometheus-E6522C?style=for-the-badge&logo=grafana&logoColor=white)](https://grafana.com)
+[![License](https://img.shields.io/badge/License-MIT-22C55E?style=for-the-badge)](LICENSE)
+
+[**Features**](#-features) · [**Quick Start**](#-quick-start) · [**Install as App**](#-install-as-desktop-app-no-terminal) · [**Grafana**](#-grafana-dashboard) · [**Docs**](#-using-the-app) · [**FAQ**](#-faq)
 
 ---
 
-## What Is NetMind?
+> **NetMind is a standalone desktop application** for Linux that gives you complete visibility and control over every device on your home or office network — powered by a local AI that runs entirely on your machine. No cloud. No subscriptions. No data leaves your network.
 
-NetMind is a **standalone desktop application** for Linux that gives you complete visibility and control over every device connected to your local network. Whether you're a home user tired of someone hogging the bandwidth, a parent wanting to manage screen time, or a small office admin needing fair usage policies — NetMind handles it all automatically.
-
-The core idea is simple:
-
-- **See** every device on your network with real-time download/upload speeds
-- **Know** what each device is doing (streaming, gaming, browsing, etc.)
-- **Control** their bandwidth with a single click — limit, block, or free any device
-- **Automate** everything with a local AI that understands your goals in plain English
-
-Everything runs **locally on your machine** — no cloud, no subscriptions, no data leaves your network.
-
-> ⚠️ **Legal Notice**: NetMind should only be used on networks you own or have explicit written permission to manage. Unauthorized network management is illegal in most countries.
+</div>
 
 ---
 
-## Key Features
+## ✨ Features
 
-### 🔍 Real-Time Device Discovery
-- Automatically scans your network and lists every connected device
-- Continuously re-scans every 30 seconds for newly connected devices
-- Displays IP address, device name, and a live bandwidth meter for each device
+<table>
+<tr>
+<td width="50%">
 
-### 📊 Live Bandwidth Monitoring
-- Per-device real-time download and upload speeds (KB/s)
-- Network-wide totals displayed prominently in the stats bar
-- Historical data stored in Prometheus for long-term trend analysis
+**🔍 Real-Time Device Discovery**
+Automatically detects every connected device. Re-scans every 30 seconds for new arrivals. Shows IP, name, and live speed per device.
 
-### 🕵️ Activity Tracking
-- Identifies what each device is doing based on its network activity
-- Recognizes popular services: YouTube, Netflix, Instagram, Spotify, gaming platforms, video calls, and more
-- Shows status per device: Active, Idle, Limited, Blocked, or Trusted
+**📊 Live Bandwidth Monitoring**
+Per-device download and upload speeds updated every 3 seconds. Network-wide totals always visible.
 
-### ⚡ Manual Bandwidth Control
-- **Limit** — Set a custom speed cap for any device
-- **Block** — Completely cut off a device's internet access
-- **Free** — Instantly restore full-speed access
-- Changes take effect immediately with no restart needed
+**🕵️ Activity Recognition**
+Identifies what each device is doing: YouTube, Netflix, Spotify, gaming, video calls, browsing — automatically.
 
-### 🔒 Trusted Device List
-- Mark any device as **Trusted** to completely exclude it from monitoring and control
-- Trusted devices pass through at full speed, untouched
-- One click to trust or untrust at any time
+**⚡ Instant Bandwidth Control**
+- **Limit** — set a custom speed cap
+- **Block** — cut off internet access instantly
+- **Free** — restore full speed in one click
 
-### 🤖 AI AutoPilot
-- Describe your network goals once during setup (e.g., *"prioritize work laptops, limit gaming at night"*)
-- The AutoPilot runs in the background and automatically applies smart policies every 30 seconds
-- Makes decisions based on real-time bandwidth data and your stated priorities
-- Every decision is logged with a clear explanation of why it was made
+</td>
+<td width="50%">
 
-### 💬 AI Chat Assistant
-- Talk to the built-in AI in plain English
-- Ask questions like *"Which device is using the most bandwidth?"* or *"Block the phone for the next hour"*
-- The AI can read live stats and take actions on your behalf
+**🤖 AI AutoPilot**
+Describe your goals once in plain English. AutoPilot applies smart policies every 30 seconds and logs every decision with its reasoning.
 
-### 📈 Grafana Dashboard (Optional)
-- Beautiful time-series graphs of per-device bandwidth over time
-- Auto-provisioned — zero configuration needed
-- Accessible from any browser on your network at `http://localhost:3000`
+**💬 AI Chat Assistant**
+Talk to your network in natural language. *"Which device is using the most bandwidth?"* → AI answers and can take action.
 
-### 🖥️ Native Desktop App
-- No browser required — runs as a proper desktop window
-- Dark-themed, modern UI built with PyQt6
-- Fully frameless custom window with smooth animations
+**📈 Grafana Dashboard**
+Beautiful real-time graphs. Auto-provisioned, zero configuration. Access from any browser on your network.
+
+**🔒 Trusted Devices**
+Mark any device as trusted — it gets excluded from monitoring and control permanently, passing at full speed.
+
+</td>
+</tr>
+</table>
+
+> ⚠️ **Legal Notice** — NetMind should only be used on networks you own or have explicit written permission to manage.
 
 ---
 
-## How It Works (Simple Version)
+## ⚡ Quick Start
 
-When NetMind starts monitoring, it positions itself as an **invisible intermediary** between your devices and your router. All network traffic flows through your machine, which allows NetMind to:
-
-1. **Measure** exactly how much data each device sends and receives
-2. **Identify** what services each device is communicating with
-3. **Shape** the traffic for any device — speeding it up, slowing it down, or blocking it entirely
-
-Your internet connection continues working normally for all devices. NetMind just observes and manages the flow.
-
-The **AI engine** (Llama 3.1, running fully offline on your machine via Ollama) processes your network goals, analyzes live traffic data, and makes bandwidth management decisions automatically.
-
-```
-   Your Devices                 NetMind                    Router
-  ┌──────────┐               ┌──────────┐               ┌──────────┐
-  │  Phone   │──────────────►│          │──────────────►│          │
-  │  Laptop  │──────────────►│ Monitors │──────────────►│ Internet │
-  │  TV      │──────────────►│ Controls │──────────────►│ Gateway  │
-  │  Console │──────────────►│    AI    │──────────────►│          │
-  └──────────┘               └──────────┘               └──────────┘
-                                   │
-                              ┌────▼─────┐
-                              │ Grafana  │
-                              │Dashboard │
-                              └──────────┘
-```
-
----
-
-## Screenshots & UI Overview
-
-The NetMind interface is split into several areas:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│ 🧠 NetMind   [System●] [Monitor●] [AutoPilot●]   [▶ Start] [■ Stop] │
-├────────────┬────────────┬────────────┬────────────┬────────────┤
-│  Devices   │  ↓ MB/s   │  ↑ MB/s   │  Limited   │  Blocked  │
-├─────────────────────────────────────────────────────────────────┤
-│ 🤖 AutoPilot Status                              [Start] [Stop]│
-├─────────────────────────────────────────────────────────────────┤
-│ 📡 Connected Devices                              [⟳ Scan]     │
-│ ┌──────────┬──────┬──────┬─────────┬──────────┬──────────┬───┐ │
-│ │IP / Name │↓KB/s │↑KB/s │ Status  │ Activity │ Actions  │Trs│ │
-│ ├──────────┼──────┼──────┼─────────┼──────────┼──────────┼───┤ │
-│ │192.168.. │ 1240 │  80  │🟢 Active│ YouTube  │Lmt Blk Fr│Trs│ │
-│ │192.168.. │  0.0 │  0.0 │⚪ Idle  │    —     │Lmt Blk Fr│Trs│ │
-│ └──────────┴──────┴──────┴─────────┴──────────┴──────────┴───┘ │
-├───────────────────────────┬─────────────────────────────────────┤
-│ 📋 AI Decision Log        │  💬 AI Chat                         │
-│                           │  ┌────────────────────────────────┐ │
-│ [14:22:01] Llama 3.1      │  │ You: Who is using the most     │ │
-│ detected high usage on    │  │ bandwidth?                      │ │
-│ 192.168.1.45 → applying  │  │                                 │ │
-│ 5 Mbps limit             │  │ AI: Device 192.168.1.45 is ...  │ │
-│                           │  └────────────────────────────────┘ │
-└───────────────────────────┴─────────────────────────────────────┘
-```
-
----
-
-## System Requirements
-
-| Requirement | Details |
-|-------------|---------|
-| **Operating System** | Linux (Ubuntu 20.04+, Debian 11+, Kali, Fedora 35+, Arch) |
-| **Python** | 3.10 or higher |
-| **Privileges** | Must run as root / with `sudo` |
-| **RAM** | 6 GB minimum (4 GB is used by the Llama 3.1 AI model) |
-| **Disk Space** | ~5 GB free (AI model: ~4.9 GB) |
-| **Network** | Must be connected to the same Wi-Fi or Ethernet network as the devices you want to manage |
-| **Ollama** | Installed and running with the `llama3.1` model pulled |
-| **Docker** | Optional — only needed for the Grafana/Prometheus dashboard |
-
-> **WiFi vs Ethernet:** NetMind works on both. With Wi-Fi, you may see ~15–30% lower speeds compared to a direct Ethernet connection on your monitoring machine — this is normal overhead from routing traffic wirelessly.
-
----
-
-## Installation
-
-### ⚡ One Command — Full Automatic Setup
-
-Clone the repo and run the setup script. It handles **everything**:
+### Step 1 — Clone the repo
 
 ```bash
 git clone https://github.com/Shadownikka/PFE.git
 cd PFE
+```
+
+### Step 2 — Run setup *(the only time you use a terminal)*
+
+```bash
 sudo bash setup.sh
 ```
 
-**What `setup.sh` does automatically:**
+`setup.sh` is a fully automatic 9-step installer:
 
-| Step | What Happens |
+| Step | What happens |
 |------|-------------|
-| 1 | Detects your Linux distro (Ubuntu, Debian, Kali, Fedora, Arch, Mint…) |
-| 2 | Installs all required system packages |
-| 3 | Installs all Python dependencies |
+| 1 | Detects your distro (Ubuntu, Debian, Kali, Fedora, Arch, Mint…) |
+| 2 | Installs all system packages |
+| 3 | Installs all Python dependencies (including for root) |
 | 4 | Installs Docker + Docker Compose |
 | 5 | Installs Ollama (local AI runtime) |
 | 6 | Downloads the Llama 3.1 AI model (~4.9 GB) |
-| 7 | Fixes file permissions and git configuration |
-| 8 | Runs a full health check and offers to launch the app |
+| 7 | Copies project files to `/opt/netmind/` (clean system install) |
+| 8 | Installs desktop icon, app menu entry, and desktop shortcut automatically |
+| 9 | Health check + optional immediate launch |
 
-> The script asks you at the end: **"Launch NetMind now? [y/N]"** — press `y` to start immediately.
+### Step 3 — Double-click to launch *(from now on, always)*
 
----
+After setup, **NetMind appears on your Desktop**. Just double-click it.
 
-### Manual Installation (Step by Step)
+> No terminal needed — ever again.
 
-If you prefer to install manually or something failed in the auto setup:
-
-
-Ollama is the local AI runtime that powers NetMind's intelligence.
-
-```bash
-curl -fsSL https://ollama.com/install.sh | sh
-```
-
-Start Ollama and download the AI model (~4.9 GB):
-
-```bash
-ollama serve &
-ollama pull llama3.1
-```
-
-Verify it's working:
-
-```bash
-ollama list
-# Should show: llama3.1:latest
-```
-
-### Step 2 — Install Python Dependencies
-
-```bash
-cd NetMind
-pip3 install -r requirements.txt
-```
-
-If you get an "externally managed environment" error (newer Ubuntu/Debian):
-
-```bash
-pip3 install --break-system-packages -r requirements.txt
-# Or use a virtual environment:
-python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt
-```
-
-### Step 3 — Install Docker (Optional — for Dashboard)
-
-Only needed if you want the Grafana visual dashboard:
-
-```bash
-# Ubuntu/Debian:
-sudo apt install docker.io docker-compose-plugin -y
-sudo systemctl enable --now docker
-```
-
-### Step 4 — Verify Everything
-
-```bash
-# Check Python version (needs 3.10+)
-python3 --version
-
-# Check Ollama
-curl http://localhost:11434/api/tags
-
-# Check PyQt6
-python3 -c "from PyQt6.QtWidgets import QApplication; print('PyQt6 OK')"
-```
+On first launch:
+1. Enter your password when prompted
+2. Click **Initialize** — scans your network
+3. Click **▶ Start** — begins monitoring
+4. Open **http://localhost:3000** for live Grafana charts
 
 ---
 
-## Quick Start
+## 🖥️ Desktop App Launch
 
-```bash
-# Start all services and launch the app:
-sudo bash start.sh
+After running `sudo bash setup.sh`, NetMind is already installed as a desktop app. The setup handles everything — **no extra commands needed**.
 
-# Or launch just the desktop app directly:
-sudo python3 NetMindDesktop.py
-```
-
-To stop everything:
-
-```bash
-sudo bash stop.sh
-```
+When you double-click the icon, NetMind automatically:
+1. Prompts for your password (once per session via GUI)
+2. Starts Prometheus + Grafana containers in the background
+3. Starts Ollama if not already running
+4. Opens the NetMind window
 
 ---
 
-## Using the App
+## 🖱️ Using the App
 
-### First Launch & Onboarding
+### First Launch — Onboarding
 
-The very first time you start NetMind, you'll see the **Onboarding Wizard**. This is where you tell the AI what your network management goals are.
+The first time you open NetMind, the **AI Onboarding Wizard** asks you to describe your network goals in plain English:
 
-Type a plain-English description of what you want, for example:
+> *"I run a coffee shop. Give customers fast WiFi. My office PC gets priority. Limit any single device to 20 Mbps."*
 
-- *"I have 4 people at home. Prioritize my work laptop for video calls. Limit gaming consoles to 10 Mbps. Don't touch my smart TV."*
-- *"Fair bandwidth sharing for everyone. No single device should use more than 40% of the total."*
-- *"Limit all devices between 9pm and 7am to 5 Mbps."*
+> *"Fair sharing at home. No one should hog the bandwidth. Gaming consoles limited to 10 Mbps after 10pm."*
 
-The AI will process your goals and generate a policy. You can review it before confirming. This profile is saved and used by AutoPilot going forward.
-
-You can re-run the onboarding at any time via **⚙ Config** in the top bar.
+The AI generates a complete bandwidth policy from your description. Review it, then confirm. This profile powers the AutoPilot from that point on.
 
 ---
 
 ### Dashboard Overview
 
-Once you click **Initialize** → **▶ Start**, the main dashboard appears.
-
-**Top Status Bar:**
-| Pill | Color | Meaning |
-|------|-------|---------|
-| System ● | Green | Network engine is ready |
-| Monitor ● | Green | Actively monitoring traffic |
-| AutoPilot ● | Amber | AI is running and making decisions |
-
-**Stats Row** — five at-a-glance numbers:
-| Card | Shows |
-|------|-------|
-| Devices | Total number of discovered devices |
-| ↓ MB/s | Total network download speed right now |
-| ↑ MB/s | Total network upload speed right now |
-| Limited | Number of devices with a speed cap applied |
-| Blocked | Number of fully blocked devices |
-
----
-
-### Device List
-
-The **📡 Connected Devices** table is the heart of the app. It updates every 3 seconds and shows:
-
-| Column | Description |
-|--------|-------------|
-| **IP / Name** | IP address and auto-assigned device name |
-| **↓ KB/s** | Current download speed |
-| **↑ KB/s** | Current upload speed |
-| **Status** | 🟢 Active / ⚪ Idle / 🔴 Limited / ⛔ Blocked / 🔒 Trusted |
-| **Activity** | What the device is currently doing (YouTube, Netflix, browsing, gaming…) |
-| **Actions** | Limit / Block / Free buttons |
-| **Trust** | Trust or Untrust this device |
-
-Click **⟳ Scan** to immediately scan for new devices instead of waiting for the 30-second auto-scan.
-
----
-
-### Manual Controls
-
-Each device row has three action buttons:
-
-| Button | Color | What It Does |
-|--------|-------|--------------|
-| **Limit** | Amber | Opens a dialog to set a custom speed cap (e.g., 2 Mbps down, 1 Mbps up) |
-| **Block** | Red | Immediately cuts off the device's internet access |
-| **Free** | Green | Removes any limit or block — restores full speed |
-
-These actions are **immediate** — they take effect within seconds.
-
----
-
-### Trusted Devices
-
-Marking a device as **Trusted** tells NetMind to leave it completely alone:
-
-- ✅ Not monitored for bandwidth
-- ✅ Not subject to AutoPilot decisions
-- ✅ Not limited or blocked — ever
-- ✅ Passes through at full network speed
-
-**To trust a device:** Click the **Trust** button (cyan) in the device row.  
-**To untrust a device:** Click **Untrust** — monitoring resumes immediately.
-
-**Common use case:** Mark your own laptop as trusted so NetMind never accidentally limits it.
-
----
-
-### AutoPilot (AI Mode)
-
-AutoPilot is the autonomous AI manager. Once started, it:
-
-1. Runs a decision cycle every **30 seconds**
-2. Reads live bandwidth data for all non-trusted devices
-3. Compares it against your stated goals from the Onboarding profile
-4. Applies limits, removes limits, or leaves devices alone as needed
-5. Logs every decision with a timestamp and reasoning in the **AI Decision Log**
-
-**To start AutoPilot:** Click **Start AP** in the AutoPilot card.  
-**To stop AutoPilot:** Click **Stop AP** — all existing limits remain until you manually remove them.
-
-The **AI Decision Log** shows recent decisions in real time, for example:
-
 ```
-[16:45:03] Device 192.168.1.33 using 8,450 KB/s (above threshold).
-           Applying 5,000 KB/s limit to ensure fair sharing.
-
-[16:45:33] Device 192.168.1.33 now at 4,200 KB/s — within bounds.
-           No action needed.
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 🧠 NetMind  ●System  ●Monitor  ●AutoPilot   [Init] [▶Start] [■Stop] [📊]│
+├──────────┬──────────┬──────────┬──────────┬──────────┬─────────────────┤
+│  6       │  24.3    │  3.1     │  2       │  1       │  47             │
+│ Devices  │ ↓ MB/s   │ ↑ MB/s   │ Limited  │ Blocked  │ AI Cycles       │
+├─────────────────────────────────────────────────────────────────────────┤
+│ 🤖 AutoPilot  ● Running · Decisions: 47 · Interval: 30s · Last: 12s ago │
+├─────────────────────────────────────────────────────────────────────────┤
+│ 📡 Connected Devices                                          [⟳ Scan]  │
+│ ┌────────────────┬───────┬──────┬───────────┬──────────────┬──────┬───┐ │
+│ │ IP / Name      │↓ KB/s │↑KB/s │  Status   │   Activity   │Action│Trs│ │
+│ ├────────────────┼───────┼──────┼───────────┼──────────────┼──────┼───┤ │
+│ │ 192.168.1.45   │ 9,234 │  182 │ 🟢 Active │ YouTube 4K   │L B F │Trs│ │
+│ │ Device-23      │ 2,100 │  400 │ 🔴 Limited│ Video Call   │L B F │Trs│ │
+│ │ 192.168.1.12   │     0 │    0 │ ⚪ Idle   │     —        │L B F │Trs│ │
+│ │ 192.168.1.67   │   340 │   55 │ 🔒 Trusted│ Browsing     │  —   │Utr│ │
+│ └────────────────┴───────┴──────┴───────────┴──────────────┴──────┴───┘ │
+├─────────────────────────────┬───────────────────────────────────────────┤
+│ 📋 AI Decision Log          │ 💬 AI Chat Assistant                      │
+│ 16:45:03 [limit_device]     │ You: Which device uses the most bandwidth?│
+│ 192.168.1.45 at 9,234 KB/s  │                                           │
+│ → applying 5,000 KB/s limit │ AI: 192.168.1.45 — downloading at        │
+│                             │ 9,234 KB/s. Currently streaming YouTube.  │
+│ 16:45:33 [no_action]        │                                           │
+│ All devices within bounds   │ You: Limit it to 3 Mbps.                  │
+│                             │ AI: Done. Limit applied.                  │
+└─────────────────────────────┴───────────────────────────────────────────┘
 ```
 
-> **Note:** AutoPilot automatically starts if you have a saved onboarding profile when you click ▶ Start.
+### Status Indicators
+
+| Pill | What it means |
+|------|--------------|
+| ● **System** (green) | Network engine initialized, devices discovered |
+| ● **Monitor** (green) | Actively measuring traffic for all devices |
+| ● **AutoPilot** (amber) | AI is running and making autonomous decisions |
+
+### Device Actions
+
+| Button | Effect |
+|--------|--------|
+| **Limit** | Set a custom speed cap (e.g. 2,048 KB/s down / 512 KB/s up) |
+| **Block** | Immediately cut off all internet access |
+| **Free** | Remove any limit or block — restore full speed |
+| **Trust** | Exclude device from all monitoring and control forever |
 
 ---
 
-### AI Chat Assistant
+## 📈 Grafana Dashboard
 
-The **💬 AI Chat** panel lets you talk directly to the AI in natural language. Type any question or command and the AI will respond — and can take real actions on your network.
+After clicking **▶ Start**, real-time metrics flow automatically to Grafana:
 
-**Example conversations:**
+**→ http://localhost:3000** &nbsp; Login: `admin` / `admin`
 
+| Panel | Shows |
+|-------|-------|
+| Active / Limited / Blocked | Live device counts |
+| Total Network Bandwidth | Real-time download + upload combined |
+| Device Download Bandwidth | Per-device speed graph over time |
+| Device Upload Bandwidth | Per-device upload over time |
+
+Dashboard auto-refreshes every **5 seconds**. Prometheus data is available at **http://localhost:9091/targets** — the `netmind` target shows **UP** while monitoring is active.
+
+---
+
+## 📦 Build Standalone Executable
+
+Create a portable binary that runs without Python installed:
+
+```bash
+# Install build tool
+pip3 install pyinstaller
+
+# Build (1-3 minutes)
+bash packaging/build.sh
+
+# Test the binary
+sudo dist/NetMind/NetMind
 ```
-You:  Which device is using the most bandwidth right now?
-AI:   192.168.1.45 is downloading at 9,234 KB/s — the highest on your network.
 
-You:  Limit it to 3 Mbps.
-AI:   Done. Applied a 3,000 KB/s download limit to 192.168.1.45.
-
-You:  Show me all devices and their current speeds.
-AI:   Here's a snapshot of all 6 devices on your network: [...]
-
-You:  Free everyone.
-AI:   Removed all bandwidth limits. All devices are now running at full speed.
-```
-
-The AI has access to live network data and can execute: **limit**, **block**, **free/unblock**, **get stats**, and **describe activity**.
+The output is `dist/NetMind/` — a self-contained folder you can copy anywhere.
 
 ---
 
-### Grafana Dashboard
-
-If you started NetMind with `sudo bash start.sh`, the Grafana dashboard is available at:
-
-**http://localhost:3000** — Login: `admin` / `admin`
-
-The dashboard includes:
-
-| Panel | What It Shows |
-|-------|--------------|
-| Real-Time Bandwidth | Per-device download/upload graph over time |
-| Active Devices | Live count of devices transferring data |
-| Limited / Blocked | Count of managed devices |
-| Per-Device Download | Individual speed chart per device |
-| Per-Device Upload | Individual upload chart per device |
-| AI Status | Whether AutoPilot is active |
-| AI Inference Time | How long the AI takes to make each decision |
-
-Dashboard auto-refreshes every **5 seconds**.
-
-Prometheus metrics are available at: **http://localhost:9091**
-
----
-
-## Project Structure
+## 🗂️ Project Structure
 
 ```
 NetMind/
+├── NetMindDesktop.py          ← PyQt6 desktop application (entry point)
+├── start.sh                   ← Starts services + launches app
+├── stop.sh                    ← Stops all services, restores network
+├── netmind-launch.sh          ← GUI launcher (called by the .desktop file)
+├── requirements.txt           ← Python dependencies
 │
-├── NetMindDesktop.py        ← Application entry point
-├── start.sh                 ← Starts Ollama, Docker services, then launches app
-├── stop.sh                  ← Stops Docker services and cleans up
-├── requirements.txt         ← Python dependencies
-├── README.md
+├── core/                      ← Network & AI engine
+│   ├── tool.py                ← Device discovery, ARP spoofing, TC, iptables
+│   ├── metrics_exporter.py    ← Prometheus metrics exporter (:9090)
+│   ├── autopilot.py           ← AI AutoPilot decision loop
+│   ├── net_agent.py           ← Llama 3.1 tool-calling agent
+│   ├── onboarding.py          ← Profile manager (natural language → policy)
+│   ├── ai.py                  ← AI utilities and Ollama integration
+│   └── voice_handler.py       ← Voice input (experimental)
 │
-├── core/                    ← Engine modules
-│   ├── tool.py              ← Network engine: device discovery, traffic monitoring, bandwidth control
-│   ├── autopilot.py         ← AI AutoPilot decision loop
-│   ├── net_agent.py         ← AI network agent with function-calling support
-│   ├── ai.py                ← AI utilities and Ollama integration
-│   ├── onboarding.py        ← User profile manager
-│   ├── voice_handler.py     ← Voice input support (experimental)
-│   └── metrics_exporter.py  ← Prometheus metrics exporter
+├── assets/
+│   └── netmind.png            ← Application icon
 │
-├── observability/           ← Monitoring stack (Docker)
-│   ├── docker-compose.yml   ← Prometheus + Grafana services
-│   ├── prometheus.yml       ← Prometheus configuration
+├── observability/             ← Monitoring stack (Docker)
+│   ├── docker-compose.yml     ← Prometheus + Grafana services
+│   ├── prometheus.yml         ← Scrape config (targets NetMind on :9090)
 │   └── grafana/
-│       ├── datasources.yml  ← Auto-configures Prometheus as data source
-│       ├── dashboards.yml   ← Auto-provisions dashboards
-│       └── *.json           ← Pre-built dashboard definitions
+│       ├── datasources.yml    ← Auto-configures Prometheus datasource
+│       ├── dashboards.yml     ← Auto-provisions dashboard folder
+│       ├── NetMind Bandwidth Monitor.json
+│       └── netmind-professional-dashboard.json
 │
-└── packaging/               ← Build and distribution
-    ├── NetMind.spec         ← PyInstaller spec for standalone binary
-    ├── NetMind.iss          ← Inno Setup script (Windows installer)
-    ├── Dockerfile           ← Docker image definition
-    ├── Dockerfile.ai-agent  ← AI agent Docker image
-    └── BUILD.md             ← Build instructions
+└── packaging/                 ← Build & distribution
+    ├── install-app.sh         ← Installs as desktop app (double-click launch)
+    ├── build.sh               ← Builds standalone executable via PyInstaller
+    ├── NetMind.spec           ← PyInstaller configuration
+    ├── NetMind.iss            ← Inno Setup script (Windows installer)
+    └── BUILD.md               ← Detailed build documentation
 ```
 
 ---
 
-## Configuration
+## ⚙️ Configuration
 
-### Bandwidth Thresholds
-
-Found in `core/tool.py` under the `Config` class:
+### Bandwidth Thresholds (`core/tool.py` → `Config`)
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `MONITOR_INTERVAL` | 3 seconds | How often speeds are recalculated |
-| `HISTORY_LENGTH` | 20 samples | How many samples are averaged |
-| `MAX_SINGLE_DEVICE_PERCENT` | 40% | Max share of total bandwidth per device before AutoPilot acts |
-| `MIN_GUARANTEED_KBPS` | 256 KB/s | Minimum speed a limited device always keeps |
-| `BANDWIDTH_ABUSE_THRESHOLD` | 5000 KB/s | Speed above which AutoPilot may intervene |
+| `MONITOR_INTERVAL` | `3s` | How often speeds are recalculated |
+| `HISTORY_LENGTH` | `20` | Number of samples averaged per reading |
+| `MAX_SINGLE_DEVICE_PERCENT` | `40%` | Share of total bandwidth before AutoPilot acts |
+| `MIN_GUARANTEED_KBPS` | `256` | Minimum speed a limited device always keeps |
+| `BANDWIDTH_ABUSE_THRESHOLD` | `5000 KB/s` | Threshold for AutoPilot to intervene |
 
-### AI Settings
-
-Found in `core/net_agent.py`:
+### AI Settings (`core/net_agent.py`)
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `model` | `llama3.1` | Ollama model name |
-| `temperature` | 0.2 | Lower = faster, more predictable responses |
-| `num_predict` | 150 | Maximum response length in tokens |
-| `num_ctx` | 2048 | Context window size |
+| `model` | `llama3.1` | Ollama model used for decisions |
+| `temperature` | `0.2` | Lower = more predictable, faster responses |
+| `num_predict` | `150` | Max response length in tokens |
+| `num_ctx` | `2048` | Context window size |
 
-### Ollama Host
+### AutoPilot interval
 
-By default NetMind connects to Ollama at `http://localhost:11434`. If Ollama runs on a different port, update the `ollama` field in `DashboardPage.__init__` in `NetMindDesktop.py`.
+Edit `core/autopilot.py` → `AutoPilot(interval_seconds=30)`.
 
-### AutoPilot Interval
+### Ollama host
 
-The AutoPilot runs every 30 seconds by default. To change this, edit `core/autopilot.py` and change the `interval_seconds` parameter in the `AutoPilot` class constructor.
-
----
-
-## Prometheus Metrics
-
-When the observability stack is running, NetMind exposes these metrics at `http://localhost:9091`:
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| `netmind_bandwidth_download_kbps` | Gauge | Per-device download speed |
-| `netmind_bandwidth_upload_kbps` | Gauge | Per-device upload speed |
-| `netmind_bandwidth_total_download_mb` | Gauge | Cumulative download per device |
-| `netmind_bandwidth_total_upload_mb` | Gauge | Cumulative upload per device |
-| `netmind_device_status` | Gauge | 0=normal, 1=limited, 2=blocked |
-| `netmind_device_limit_download_kbps` | Gauge | Currently applied download limit |
-| `netmind_device_limit_upload_kbps` | Gauge | Currently applied upload limit |
-| `netmind_active_devices_total` | Gauge | Number of active devices |
-| `netmind_limited_devices_total` | Gauge | Number of limited devices |
-| `netmind_blocked_devices_total` | Gauge | Number of blocked devices |
-| `netmind_network_total_download_kbps` | Gauge | Total network download speed |
-| `netmind_network_total_upload_kbps` | Gauge | Total network upload speed |
-| `netmind_ai_inference_time_seconds` | Gauge | Time taken by last AI decision |
-| `netmind_ai_agent_status` | Gauge | 0=off, 1=on, 2=error |
-
-All per-device metrics include labels: `ip`, `mac`, `hostname`.
+Default: `http://localhost:11434`. Change the `ollama` field in `DashboardPage.__init__` in `NetMindDesktop.py`.
 
 ---
 
-## Troubleshooting
+## 📡 Prometheus Metrics Reference
 
-### 🔴 App Doesn't Start / Import Errors
+Metrics are exposed at `http://localhost:9090/metrics` while monitoring is active (scraped by Prometheus at **http://localhost:9091**).
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `netmind_bandwidth_download_kbps` | Gauge | `ip, mac, hostname` | Current download speed |
+| `netmind_bandwidth_upload_kbps` | Gauge | `ip, mac, hostname` | Current upload speed |
+| `netmind_bandwidth_total_download_mb` | Gauge | `ip, mac, hostname` | Cumulative download |
+| `netmind_bandwidth_total_upload_mb` | Gauge | `ip, mac, hostname` | Cumulative upload |
+| `netmind_device_status` | Gauge | `ip, mac, hostname` | `0`=normal, `1`=limited, `2`=blocked |
+| `netmind_device_limit_download_kbps` | Gauge | `ip, mac, hostname` | Applied download cap |
+| `netmind_device_limit_upload_kbps` | Gauge | `ip, mac, hostname` | Applied upload cap |
+| `netmind_active_devices_total` | Gauge | — | Devices currently transferring data |
+| `netmind_limited_devices_total` | Gauge | — | Devices with a speed cap |
+| `netmind_blocked_devices_total` | Gauge | — | Fully blocked devices |
+| `netmind_network_total_download_kbps` | Gauge | — | Total network download speed |
+| `netmind_network_total_upload_kbps` | Gauge | — | Total network upload speed |
+| `netmind_monitoring_uptime_seconds` | Gauge | — | Time since monitoring started |
+| `netmind_ai_inference_time_seconds` | Gauge | — | Last AI decision duration |
+| `netmind_ai_agent_status` | Gauge | — | `0`=off, `1`=on, `2`=error |
+| `netmind_limits_applied_total` | Counter | `type` | Total limits applied |
+| `netmind_limits_removed_total` | Counter | — | Total limits removed |
+
+---
+
+## 🔧 Troubleshooting
+
+### App won't start / import errors
 
 ```bash
-# Make sure you're running as root
+# Always run with sudo
 sudo python3 NetMindDesktop.py
 
-# Reinstall dependencies
-pip3 install --break-system-packages -r requirements.txt
+# Reinstall all dependencies
+sudo pip3 install --break-system-packages -r requirements.txt
 ```
 
----
-
-### 🔴 "Ollama not reachable" / AutoPilot Errors
+### Ollama not reachable / AI errors
 
 ```bash
-# Check Ollama is running
-curl http://localhost:11434/api/tags
-
-# If not running, start it
-ollama serve
-
-# Check the model is downloaded
-ollama list
-# Should show: llama3.1:latest
-
-# If model is missing, pull it
-ollama pull llama3.1
+curl http://localhost:11434/api/tags      # check if running
+ollama serve                              # start if not running
+ollama list                              # confirm llama3.1 is present
+ollama pull llama3.1                     # download if missing
 ```
 
----
+### No devices appearing after Initialize
 
-### 🔴 No Devices Appearing After Initialize
+- Confirm you're on the same Wi-Fi or Ethernet as the target devices
+- Confirm you ran with `sudo`
+- Click **⟳ Scan** for an immediate re-scan
+- Check firewall: `sudo ufw status` (disable temporarily to test)
 
-1. Make sure you're connected to the same Wi-Fi / Ethernet as the target devices
-2. Make sure you're running with `sudo`
-3. Click **⟳ Scan** to force an immediate re-scan
-4. Check that your firewall isn't blocking raw network access:
-   ```bash
-   sudo ufw disable   # temporarily disable to test
-   ```
+### Bandwidth readings show zero
 
----
+- The device may be idle — open YouTube or a website on it to generate traffic
+- Wait 5–10 seconds after clicking ▶ Start for the first reading
+- Confirm IP forwarding is on: `cat /proc/sys/net/ipv4/ip_forward` (must be `1`)
 
-### 🔴 Bandwidth Readings Show Zero
+### Grafana shows "No data"
 
-- The device may not be generating any traffic — try loading a website or YouTube on it
-- Wait 5–10 seconds after starting monitoring for the first readings to appear
-- Make sure IP forwarding is enabled:
-  ```bash
-  cat /proc/sys/net/ipv4/ip_forward
-  # Must show: 1
-  # If not:
-  echo 1 | sudo tee /proc/sys/net/ipv4/ip_forward
-  ```
+1. Confirm monitoring is active (Monitor pill is **green**)
+2. Check Prometheus target: **http://localhost:9091/targets** → should show **UP**
+3. The target turns UP only after you click **▶ Start** — it's expected to show DOWN before that
+4. Test the datasource: Grafana → Connections → Prometheus → **Save & test**
 
----
-
-### 🔴 Devices Lost Internet When Monitoring Started
-
-This can happen if the app closes unexpectedly. Fix:
+### Devices lost internet after app closed unexpectedly
 
 ```bash
-# Emergency restore — run this to bring devices back online
+# Emergency restore
 sudo bash stop.sh
-
-# Then restart the router as a last resort (clears all device caches)
 ```
 
-**Prevention:** Always click **■ Stop** in the app or run `stop.sh` before closing the terminal.
+Always click **■ Stop** before closing the app.
 
----
-
-### 🔴 Speed Is Slower Than Expected on Monitored Devices
-
-Some overhead is expected because traffic routes through your machine. Typical impact:
-
-| Connection Type | Expected Overhead |
-|----------------|-------------------|
-| Ethernet (wired machine) | 3–10% |
-| Wi-Fi (same adapter) | 15–30% |
-| Wi-Fi with power-save ON | 40–60% |
-
-To minimize overhead:
+### Port conflicts
 
 ```bash
-# Disable Wi-Fi power-save mode (biggest improvement)
+sudo ss -tlnp | grep -E '3000|9090|9091|11434'
+# Change ports in observability/docker-compose.yml if needed
+```
+
+### Speed overhead on monitored devices
+
+| Connection type | Typical overhead |
+|-----------------|-----------------|
+| Wired Ethernet | 3–10% |
+| Wi-Fi | 15–30% |
+| Wi-Fi with power-save | 40–60% |
+
+```bash
+# Reduce Wi-Fi overhead
 sudo iw dev wlan0 set power_save off
 ```
 
 ---
 
-### 🔴 Grafana Dashboard Is Empty
+## 💻 System Requirements
 
-1. Make sure the observability stack is running: `docker compose -f observability/docker-compose.yml ps`
-2. Check that NetMind is actively monitoring (Monitor pill is green)
-3. Open `http://localhost:9091/targets` — the NetMind target should show **UP**
-4. In Grafana: **⚙ Settings → Data Sources → Prometheus → Test**
+| Requirement | Details |
+|-------------|---------|
+| **OS** | Linux — Ubuntu 20.04+, Debian 11+, Kali, Fedora 35+, Arch, Mint |
+| **Python** | 3.10+ |
+| **Privileges** | `sudo` / root required (for ARP, iptables, TC) |
+| **RAM** | 6 GB minimum (Llama 3.1 uses ~4 GB) |
+| **Disk** | ~5 GB free (AI model: ~4.9 GB) |
+| **Network** | Same LAN as devices you want to manage |
+| **Ollama** | Running locally with `llama3.1` pulled |
+| **Docker** | Optional — only needed for Grafana/Prometheus dashboard |
 
 ---
 
-### 🔴 Port Already in Use
+## ❓ FAQ
 
-```bash
-# Find what's using the port
-sudo ss -tlnp | grep -E '3000|9091|11434'
+**Q: Does my data go anywhere?**
+No. Everything runs on your machine. The AI is local (Ollama). No telemetry, no cloud sync, no data leaves your network.
 
-# Change ports in observability/docker-compose.yml
-# e.g. change "3000:3000" to "3001:3000" for Grafana
+**Q: Will devices notice anything is different?**
+No. Their internet continues normally. NetMind is invisible to regular users and devices.
+
+**Q: Does it work with HTTPS / encrypted traffic?**
+Yes — NetMind only measures data volume, never content. All encrypted traffic passes through untouched.
+
+**Q: Can I run it on a Raspberry Pi?**
+The monitoring and control features work fine. The Llama 3.1 AI model needs ~4 GB RAM — most Pi models can't run it. You can use NetMind in manual mode (no AutoPilot) on a Pi.
+
+**Q: What happens if I close the app without clicking Stop?**
+Devices may briefly lose internet for 1–2 minutes until their ARP caches expire. Always use **■ Stop** or `stop.sh`.
+
+**Q: Can I change the AI model?**
+Yes. Pull any Ollama model (`ollama pull llama3.2`), then set the model name in `core/net_agent.py`, `core/autopilot.py`, and `core/onboarding.py`.
+
+**Q: Does NetMind work on Windows or macOS?**
+Currently Linux only. The engine uses Linux-specific features (iptables, TC/HTB, raw sockets). Windows/macOS support is on the roadmap.
+
+**Q: How do I build a standalone executable?**
+Run `bash packaging/build.sh`. Requires PyInstaller (`pip3 install pyinstaller`). Output is `dist/NetMind/NetMind`.
+
+**Q: Can NetMind monitor devices on a different VLAN or subnet?**
+No. NetMind only manages devices on the same local network segment as your machine.
+
+---
+
+## 🔬 How It Works
+
+When you click **▶ Start**, NetMind positions itself as an invisible intermediary using **ARP spoofing** — it tells each device that it is the router, and tells the router about each device. All traffic flows through your machine, which gives NetMind:
+
+- **Full visibility** — exact bytes in/out per device
+- **Full control** — TC/HTB kernel shaping, iptables rules per IP
+- **No interception** — encrypted data is passed through intact
+
+The **Prometheus metrics exporter** starts on port `:9090` and the Docker-based Prometheus container scrapes it every 5 seconds. Grafana queries Prometheus and renders live dashboards.
+
+```
+Your Devices ──────► NetMind (ARP man-in-middle) ──────► Router ──────► Internet
+                          │
+                          ├── TrafficMonitor  (iptables byte counters)
+                          ├── BandwidthController  (TC/HTB shaping)
+                          ├── ConnectionTracker  (DNS/port activity)
+                          ├── MetricsExporter  → Prometheus → Grafana
+                          └── AutoPilot  (Llama 3.1 via Ollama)
 ```
 
 ---
 
-## FAQ
-
-**Q: Do I need an internet connection to use NetMind?**  
-A: Only for the initial setup (downloading Ollama and the AI model). Once installed, NetMind runs 100% offline. The AI runs locally on your machine.
-
-**Q: Will devices on my network notice anything is different?**  
-A: No. Their internet continues to work exactly as before. NetMind is invisible to normal users and devices.
-
-**Q: Does NetMind interfere with HTTPS or encrypted traffic?**  
-A: No. NetMind only measures how much data flows, not what the data contains. All encrypted traffic (HTTPS, VPN, etc.) passes through untouched.
-
-**Q: Can I run NetMind on a Raspberry Pi?**  
-A: The monitoring and control features work fine. However, the Llama 3.1 AI model requires ~4.9 GB of RAM, which most Raspberry Pi models don't have. You can run NetMind in manual-only mode without AutoPilot.
-
-**Q: What happens if I close the app without clicking Stop?**  
-A: Devices may temporarily lose internet until their network caches refresh (usually 1–2 minutes) or you restart your router. Always use **■ Stop** or `stop.sh`.
-
-**Q: Can NetMind monitor devices on a different network or VLAN?**  
-A: No. NetMind can only see and manage devices that are on the same local network segment as your machine.
-
-**Q: How do I change the AI model?**  
-A: Pull a different model with Ollama (`ollama pull llama3.2`), then update the model name in `core/net_agent.py`, `core/autopilot.py`, and `core/onboarding.py`.
-
-**Q: Does NetMind work on Windows or macOS?**  
-A: Currently Linux only. The network management engine relies on Linux-specific kernel features. A Windows/macOS port is on the roadmap.
-
-**Q: Can I build a standalone executable?**  
-A: Yes — use PyInstaller with the spec file in `packaging/NetMind.spec`. See `packaging/BUILD.md` for instructions.
-
-**Q: Is my network usage data sent anywhere?**  
-A: Never. All data stays on your local machine. The AI model runs entirely offline. No telemetry, no cloud.
-
----
-
-## License
+## 📄 License
 
 Copyright © 2026 NetMind. All rights reserved.
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+Licensed under the [MIT License](LICENSE).
 
 ---
 
-*Built with ❤️ using Python, PyQt6, and Llama 3.1 (Ollama). Runs entirely on your hardware.*
+<div align="center">
+
+Built with ❤️ using **Python**, **PyQt6**, **Llama 3.1**, **Prometheus**, and **Grafana**
+
+*Runs 100% on your hardware. No cloud required.*
+
+</div>

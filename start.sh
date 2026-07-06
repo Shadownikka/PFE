@@ -1,47 +1,45 @@
 #!/bin/bash
-# NetMind — Start support services (Prometheus + Grafana)
-# Ollama is assumed to be running natively on the host.
-# Usage: sudo bash start.sh
+# NetMind — Start services and launch the app
+# Works whether run from the clone directory or from /opt/netmind
+# Usage: sudo bash start.sh   (or just double-click the desktop icon instead)
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OBS_DIR="$SCRIPT_DIR/observability"
+REAL_USER="${SUDO_USER:-$USER}"
+REAL_HOME="$(eval echo ~$REAL_USER)"
 
 echo "╔══════════════════════════════════════════╗"
-echo "║      NetMind — Starting Services         ║"
+echo "║       NetMind — Starting Services        ║"
 echo "╚══════════════════════════════════════════╝"
 
-# Check Ollama is reachable on host
+# Ollama
 echo "[1/3] Checking Ollama..."
-if curl -sf http://localhost:11434/api/tags >/dev/null 2>&1; then
-    echo "  ✅ Ollama running on localhost:11434"
+if curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; then
+  echo "  ✔ Ollama running"
 else
-    echo "  ⚠️  Ollama not detected. Starting it..."
-    ollama serve &
-    sleep 3
-    echo "  ✅ Ollama started"
+  echo "  ▸ Starting Ollama..."
+  sudo -u "$REAL_USER" nohup ollama serve > /tmp/ollama.log 2>&1 &
+  sleep 4
+  echo "  ✔ Ollama started"
 fi
 
+# Prometheus + Grafana
 echo "[2/3] Starting Prometheus + Grafana..."
+docker compose -f "$OBS_DIR/docker-compose.yml" down --remove-orphans 2>/dev/null || true
 docker compose -f "$OBS_DIR/docker-compose.yml" up -d
 
 echo "[3/3] Waiting for Grafana..."
-for i in $(seq 1 15); do
-    curl -sf http://localhost:3000 >/dev/null 2>&1 && break
-    sleep 2
+for i in $(seq 1 20); do
+  curl -sf http://localhost:3000 > /dev/null 2>&1 && break
+  sleep 2
 done
 
 echo ""
-echo "✅ Services ready:"
-echo "  🤖 Ollama (Llama 3.1): http://localhost:11434  (native)"
-echo "  📊 Grafana:            http://localhost:3000   (admin/admin)"
-echo "  📈 Prometheus:         http://localhost:9091"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  ✔ Grafana:    http://localhost:3000   (admin/admin)"
+echo "  ✔ Prometheus: http://localhost:9091"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "Launching NetMind desktop app..."
-sudo python3 -B "$SCRIPT_DIR/NetMindDesktop.py"
-
-# Cleanup on exit
-echo "[NetMind] Cleaning __pycache__..."
-find "$SCRIPT_DIR" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-find "$SCRIPT_DIR" -name "*.pyc" -delete 2>/dev/null || true
-echo "Done."
+echo "Launching NetMind..."
+python3 -B "$SCRIPT_DIR/NetMindDesktop.py"

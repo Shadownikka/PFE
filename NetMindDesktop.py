@@ -390,6 +390,7 @@ class DashboardPage(QWidget):
         super().__init__(parent)
         self.monitor = self.controller = self.tracker = None
         self.autopilot = self.agent = None
+        self.metrics_exporter = None      # Prometheus metrics exporter
         self.devices = {}; self.gw_ip = self.my_ip = self.iface = None
         self.gw_mac = self.my_mac = ""
         self.trusted_ips = set()          # IPs excluded from spoofing/monitoring
@@ -571,6 +572,23 @@ class DashboardPage(QWidget):
         for ip, info in self.devices.items():
             if ip in self.trusted_ips: continue
             self.controller.start_spoofing({"ip": ip, "mac": info.get("mac","")})
+        # ── Step 4: Start Prometheus metrics exporter on port 9090 ───────────────
+        try:
+            # When running under sudo, root may not see user-installed packages.
+            # Explicitly add the invoking user's local site-packages so prometheus_client
+            # is found regardless of how the app was launched.
+            import glob as _glob
+            for _sp in _glob.glob("/home/*/.local/lib/python*/site-packages"):
+                if _sp not in sys.path:
+                    sys.path.insert(0, _sp)
+            from metrics_exporter import MetricsExporter
+            # DashboardPage has .monitor, .devices, .controller — use it as adapter.
+            self.metrics_exporter = MetricsExporter(self, port=9090)
+            self.metrics_exporter.start()
+            self._toast("📊 Metrics exporter started on :9090 — Grafana is receiving data")
+        except Exception as _me:
+            self._toast(f"⚠ Metrics exporter failed: {_me}", err=True)
+            print(f"[!] Could not start metrics exporter: {_me}")
         self.monitoring=True; self.btn_start.setEnabled(False); self.btn_stop.setEnabled(True)
         self._set_pill(self.pill_mon,True)
         self._dev_timer.start(3000)
@@ -584,6 +602,10 @@ class DashboardPage(QWidget):
             QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No)!=QMessageBox.StandardButton.Yes: return
         self._dev_timer.stop(); self._ap_timer.stop(); self._disc_timer.stop()
         if self.autopilot: self.autopilot.stop()
+        if self.metrics_exporter:
+            try: self.metrics_exporter.stop()
+            except: pass
+            self.metrics_exporter = None
         if self.tracker: self.tracker.running.set()
         if self.monitor: self.monitor.stop()
         if self.controller: self.controller.cleanup()
