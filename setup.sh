@@ -2,10 +2,12 @@
 # ╔═══════════════════════════════════════════════════════════════════════════╗
 # ║              NetMind — Bootstrap Installer                               ║
 # ║                                                                          ║
-# ║  This is the ONLY file you need. Run it once and NetMind installs        ║
-# ║  itself completely — no extra steps, no terminal after this.             ║
+# ║  This is the ONLY file you need. Run it once.                            ║
+# ║  It downloads and installs the full NetMind application automatically.   ║
 # ║                                                                          ║
-# ║  Usage:  sudo bash setup.sh                                              ║
+# ║  Usage:                                                                  ║
+# ║    sudo bash setup.sh              → downloads app from server           ║
+# ║    sudo bash setup.sh --local      → uses local tarball for testing      ║
 # ╚═══════════════════════════════════════════════════════════════════════════╝
 
 set -e
@@ -17,17 +19,24 @@ CYAN='\033[0;36m'; BOLD='\033[1m'; MAGENTA='\033[0;35m'; RESET='\033[0m'
 ok()   { echo -e "${GREEN}  ✔ $*${RESET}"; }
 info() { echo -e "${CYAN}  ▸ $*${RESET}"; }
 warn() { echo -e "${YELLOW}  ⚠ $*${RESET}"; }
-err()  { echo -e "${RED}  ✘ $*${RESET}"; exit 1; }
+err()  { echo -e "${RED}\n  ✘ ERROR: $*${RESET}\n"; exit 1; }
 step() { echo -e "\n${BOLD}${MAGENTA}[$1/9]${RESET} ${BOLD}$2${RESET}"; }
 
 # ── Config ────────────────────────────────────────────────────────────────────
-GITHUB_REPO="Shadownikka/PFE"
-RELEASE_URL="https://github.com/${GITHUB_REPO}/releases/latest/download/netmind-app-latest.tar.gz"
+# TODO: Replace with your actual download URL when your server is ready
+APP_DOWNLOAD_URL="https://YOUR-SERVER.com/downloads/netmind-app-latest.tar.gz"
+
 INSTALL_DIR="/opt/netmind"
 LAUNCHER_BIN="/usr/local/bin/netmind-launch"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME="$(eval echo ~$REAL_USER)"
+LOCAL_MODE=false
+
+# ── Parse arguments ───────────────────────────────────────────────────────────
+for arg in "$@"; do
+  [[ "$arg" == "--local" ]] && LOCAL_MODE=true
+done
 
 # ── Root check ────────────────────────────────────────────────────────────────
 [[ $EUID -ne 0 ]] && err "Please run with sudo:  sudo bash setup.sh"
@@ -43,9 +52,13 @@ echo "  ██║╚██╗██║██╔══╝     ██║   ██�
 echo "  ██║ ╚████║███████╗   ██║   ██║ ╚═╝ ██║██║██║ ╚████║██████╔╝"
 echo "  ╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝     ╚═╝╚═╝╚═╝  ╚═══╝╚═════╝ "
 echo -e "${RESET}"
-echo -e "${BOLD}  AI-Powered Network Manager — Complete Installer${RESET}"
+echo -e "${BOLD}  AI-Powered Network Manager — Installer v1.0${RESET}"
 echo ""
-echo -e "${CYAN}  Run this once. NetMind will install itself and appear on your desktop.${RESET}"
+if $LOCAL_MODE; then
+  echo -e "${YELLOW}  [LOCAL MODE — using local tarball for testing]${RESET}"
+else
+  echo -e "${CYAN}  Run this once. NetMind installs itself and appears on your desktop.${RESET}"
+fi
 echo ""
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -68,7 +81,7 @@ case "$DISTRO" in
     if   [[ "$DISTRO_LIKE" == *"debian"* || "$DISTRO_LIKE" == *"ubuntu"* ]]; then PKG_MGR="apt"
     elif [[ "$DISTRO_LIKE" == *"fedora"* || "$DISTRO_LIKE" == *"rhel"*   ]]; then PKG_MGR="dnf"
     elif [[ "$DISTRO_LIKE" == *"arch"*                                    ]]; then PKG_MGR="pacman"
-    else warn "Unknown distro. Assuming apt."; PKG_MGR="apt"
+    else warn "Unknown distro, assuming apt"; PKG_MGR="apt"
     fi ;;
 esac
 ok "Package manager: $PKG_MGR"
@@ -81,6 +94,7 @@ step 2 "Installing System Packages"
 APT_PKGS=(
   python3 python3-pip python3-dev python3-venv
   python3-pyqt6 python3-pyqt6.qtsvg
+  python3-pyaudio
   libgl1 libglib2.0-0 libxcb-xinerama0 libxcb-icccm4 libxcb-image0
   libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xkb1
   libxkbcommon-x11-0 libxkbcommon0 libegl1 libdbus-1-3
@@ -108,60 +122,67 @@ esac
 ok "System packages installed"
 
 # ════════════════════════════════════════════════════════════════════════════
-# STEP 3 — DOWNLOAD APP FILES FROM GITHUB RELEASES
+# STEP 3 — DOWNLOAD & EXTRACT APP FILES
 # ════════════════════════════════════════════════════════════════════════════
-step 3 "Downloading NetMind Application Files"
+step 3 "Getting NetMind Application Files"
 
 mkdir -p "$INSTALL_DIR"
 
-# ── Check if app files are already present locally (developer mode) ──────────
-if [[ -f "$SCRIPT_DIR/NetMindDesktop.py" ]]; then
-  info "Local project files detected — using local copy (developer mode)"
-  info "Copying project files to $INSTALL_DIR..."
-  rsync -a --delete \
-    --exclude='.git' \
-    --exclude='__pycache__' \
-    --exclude='*.pyc' \
-    --exclude='.gitkeep' \
-    --exclude='dist/' \
-    --exclude='build/' \
-    --exclude='packaging/releases/' \
-    "$SCRIPT_DIR/" "$INSTALL_DIR/" 2>/dev/null || {
-      cp -r "$SCRIPT_DIR/." "$INSTALL_DIR/"
-      find "$INSTALL_DIR" -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
-      find "$INSTALL_DIR" -name '*.pyc' -delete 2>/dev/null || true
-    }
-  ok "App files copied from local source"
+if $LOCAL_MODE; then
+  # ── Local testing mode ───────────────────────────────────────────────────
+  # Looks for tarball next to setup.sh, or in /tmp
+  TARBALL=""
+  for candidate in \
+    "$SCRIPT_DIR/netmind-app-latest.tar.gz" \
+    "/tmp/netmind-app-latest.tar.gz"; do
+    [[ -f "$candidate" ]] && TARBALL="$candidate" && break
+  done
 
-# ── Fresh install: download from GitHub Releases ─────────────────────────────
+  [[ -z "$TARBALL" ]] && err \
+    "Local mode: tarball not found.\n\n" \
+    "  Place netmind-app-latest.tar.gz next to setup.sh or in /tmp/\n" \
+    "  then run:  sudo bash setup.sh --local"
+
+  info "Extracting from local tarball: $TARBALL"
+  tar -xzf "$TARBALL" -C "$INSTALL_DIR"
+  ok "App files extracted from local tarball"
+
 else
-  info "Downloading from GitHub Releases..."
-  info "URL: $RELEASE_URL"
+  # ── Production mode: download from server ────────────────────────────────
+  [[ "$APP_DOWNLOAD_URL" == *"YOUR-SERVER"* ]] && err \
+    "Download URL not configured yet.\n" \
+    "  Edit setup.sh and set APP_DOWNLOAD_URL to your server URL.\n" \
+    "  Or test locally with:  sudo bash setup.sh --local"
 
-  TMP_TARBALL="/tmp/netmind-app.tar.gz"
+  TMP_TARBALL="/tmp/netmind-app-latest.tar.gz"
+  info "Downloading NetMind from server..."
+  info "URL: $APP_DOWNLOAD_URL"
 
-  # Download with progress
   if command -v wget &>/dev/null; then
-    wget --show-progress -q "$RELEASE_URL" -O "$TMP_TARBALL" 2>&1 || \
-      err "Download failed. Check your internet connection and try again."
+    wget --show-progress -q "$APP_DOWNLOAD_URL" -O "$TMP_TARBALL" \
+      || err "Download failed. Check your internet connection."
   else
-    curl -L --progress-bar "$RELEASE_URL" -o "$TMP_TARBALL" || \
-      err "Download failed. Check your internet connection and try again."
+    curl -L --progress-bar "$APP_DOWNLOAD_URL" -o "$TMP_TARBALL" \
+      || err "Download failed. Check your internet connection."
   fi
 
-  ok "Download complete ($(du -sh $TMP_TARBALL | cut -f1))"
-
+  ok "Downloaded ($(du -sh $TMP_TARBALL | cut -f1))"
   info "Extracting to $INSTALL_DIR..."
   tar -xzf "$TMP_TARBALL" -C "$INSTALL_DIR"
   rm -f "$TMP_TARBALL"
   ok "App files extracted to $INSTALL_DIR"
 fi
 
-# Verify critical file extracted correctly
+# Verify extraction
 [[ -f "$INSTALL_DIR/NetMindDesktop.py" ]] || \
   err "Extraction failed — NetMindDesktop.py not found in $INSTALL_DIR"
 
-ok "NetMind app files ready at $INSTALL_DIR"
+# Fix permissions
+chown -R "$REAL_USER":"$REAL_USER" "$INSTALL_DIR"
+chmod +x "$INSTALL_DIR/start.sh" \
+         "$INSTALL_DIR/stop.sh"  \
+         "$INSTALL_DIR/netmind-launch.sh" 2>/dev/null || true
+ok "App files ready at $INSTALL_DIR"
 
 # ════════════════════════════════════════════════════════════════════════════
 # STEP 4 — PYTHON DEPENDENCIES
@@ -171,7 +192,13 @@ step 4 "Installing Python Dependencies"
 REQS="$INSTALL_DIR/requirements.txt"
 PIP_FLAGS="--quiet --no-warn-script-location"
 
-info "Installing from requirements.txt..."
+# Install PyAudio via apt first (avoids portaudio.h compilation error with pip)
+info "Installing PyAudio via system package..."
+apt-get install -y python3-pyaudio 2>/dev/null || \
+  dnf install -y python3-pyaudio 2>/dev/null || \
+  pacman -Sy --noconfirm python-pyaudio 2>/dev/null || true
+
+info "Installing remaining packages from requirements.txt..."
 if pip3 install $PIP_FLAGS -r "$REQS" 2>/dev/null; then
   ok "Python packages installed"
 else
@@ -180,7 +207,7 @@ else
   ok "Python packages installed"
 fi
 
-# Also install system-wide so root (sudo python3) can import them
+# Ensure packages are available when running as root
 pip3 install $PIP_FLAGS --break-system-packages -r "$REQS" 2>/dev/null || true
 ok "Packages available for root Python"
 
@@ -247,7 +274,7 @@ done
 if ollama list 2>/dev/null | grep -q "llama3.1"; then
   ok "Llama 3.1 already downloaded"
 else
-  info "Pulling Llama 3.1 (may take 5–20 minutes)..."
+  info "Pulling Llama 3.1 (5–20 minutes depending on connection)..."
   ollama pull llama3.1 && ok "Llama 3.1 downloaded"
 fi
 
@@ -256,21 +283,16 @@ fi
 # ════════════════════════════════════════════════════════════════════════════
 step 7 "System Configuration"
 
-# Fix ownership
-chown -R "$REAL_USER":"$REAL_USER" "$INSTALL_DIR"
-chmod +x "$INSTALL_DIR/start.sh" \
-         "$INSTALL_DIR/stop.sh"  \
-         "$INSTALL_DIR/netmind-launch.sh" 2>/dev/null || true
-
-# IP forwarding
+# IP forwarding (required for traffic monitoring)
 echo 1 > /proc/sys/net/ipv4/ip_forward
 grep -q "net.ipv4.ip_forward=1" /etc/sysctl.conf 2>/dev/null || \
   echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
 ok "IP forwarding enabled"
 
-# Disable WiFi power-save
+# Disable WiFi power-save (reduces monitoring overhead)
 WIFI_IFACE=$(iw dev 2>/dev/null | awk '/Interface/{print $2}' | head -1)
-[[ -n "$WIFI_IFACE" ]] && iw dev "$WIFI_IFACE" set power_save off 2>/dev/null && \
+[[ -n "$WIFI_IFACE" ]] && \
+  iw dev "$WIFI_IFACE" set power_save off 2>/dev/null && \
   ok "Wi-Fi power-save disabled on $WIFI_IFACE"
 
 # Git safe directory
@@ -283,21 +305,21 @@ command -v git &>/dev/null && \
 step 8 "Installing Desktop Application (double-click to launch)"
 
 # ── Icon ─────────────────────────────────────────────────────────────────────
-info "Installing app icon..."
+info "Installing icon..."
 mkdir -p /usr/share/icons/hicolor/256x256/apps \
          /usr/share/icons/hicolor/512x512/apps
 if [[ -f "$INSTALL_DIR/assets/netmind.png" ]]; then
   cp "$INSTALL_DIR/assets/netmind.png" /usr/share/icons/hicolor/256x256/apps/netmind.png
   cp "$INSTALL_DIR/assets/netmind.png" /usr/share/icons/hicolor/512x512/apps/netmind.png
   gtk-update-icon-cache -f -t /usr/share/icons/hicolor/ 2>/dev/null || true
-  ok "Icon installed"
 fi
+ok "Icon installed"
 
 # ── Launcher script ───────────────────────────────────────────────────────────
 info "Installing launcher..."
 cat > "$LAUNCHER_BIN" << LAUNCHER_EOF
 #!/bin/bash
-# NetMind launcher — runs as root via pkexec, no terminal needed
+# NetMind launcher — runs as root via pkexec
 INSTALL_DIR="$INSTALL_DIR"
 OBS_DIR="\$INSTALL_DIR/observability"
 exec >> /tmp/netmind.log 2>&1
@@ -307,18 +329,18 @@ export DISPLAY="\${DISPLAY:-:0}"
 export XAUTHORITY="\${XAUTHORITY:-$REAL_HOME/.Xauthority}"
 export QT_X11_NO_MITSHM=1
 
-# Make sure prometheus_client is importable
+# Make prometheus_client importable even under sudo
 for sp in /home/*/.local/lib/python*/site-packages; do
   export PYTHONPATH="\$sp:\${PYTHONPATH}"
 done
 
-# Docker
+# Start Docker if not running
 docker info > /dev/null 2>&1 || {
   systemctl start docker 2>/dev/null || service docker start 2>/dev/null || true
   sleep 3
 }
 
-# Prometheus + Grafana
+# Start Prometheus + Grafana
 docker compose -f "\$OBS_DIR/docker-compose.yml" down --remove-orphans 2>/dev/null || true
 docker compose -f "\$OBS_DIR/docker-compose.yml" up -d 2>/dev/null || true
 
@@ -327,7 +349,7 @@ for i in \$(seq 1 15); do
   curl -sf http://localhost:3000 > /dev/null 2>&1 && break; sleep 1
 done
 
-# Ollama
+# Start Ollama if not running
 curl -sf http://localhost:11434/api/tags > /dev/null 2>&1 || {
   su - $REAL_USER -c "nohup ollama serve > /tmp/ollama.log 2>&1 &" 2>/dev/null || true
   sleep 3
@@ -337,9 +359,9 @@ cd "\$INSTALL_DIR"
 exec python3 -B "\$INSTALL_DIR/NetMindDesktop.py"
 LAUNCHER_EOF
 chmod +x "$LAUNCHER_BIN"
-ok "Launcher installed at $LAUNCHER_BIN"
+ok "Launcher installed"
 
-# ── Polkit policy ─────────────────────────────────────────────────────────────
+# ── Polkit policy (GUI password prompt) ───────────────────────────────────────
 info "Installing privilege policy..."
 mkdir -p /usr/share/polkit-1/actions
 cat > /usr/share/polkit-1/actions/com.netmind.app.policy << 'POLICY_EOF'
@@ -383,7 +405,7 @@ StartupWMClass=NetMindDesktop
 DESKTOP_EOF
 chmod 644 /usr/share/applications/netmind.desktop
 update-desktop-database /usr/share/applications/ 2>/dev/null || true
-ok "App entry created (visible in application menu)"
+ok "App menu entry created"
 
 # ── Desktop shortcut ──────────────────────────────────────────────────────────
 USER_DESKTOP="$REAL_HOME/Desktop"
@@ -415,8 +437,8 @@ check "Docker Compose"       "docker compose version"
 check "Ollama reachable"     "curl -sf http://localhost:11434/api/tags"
 check "Llama 3.1 model"      "ollama list | grep -q llama3.1"
 check "NetMindDesktop.py"    "test -f '$INSTALL_DIR/NetMindDesktop.py'"
-check "Launcher script"      "test -x '$LAUNCHER_BIN'"
-check "Desktop shortcut"     "test -f '/usr/share/applications/netmind.desktop'"
+check "Launcher"             "test -x '$LAUNCHER_BIN'"
+check "Desktop entry"        "test -f /usr/share/applications/netmind.desktop"
 
 echo ""
 echo -e "  ${BOLD}Results: ${GREEN}$PASS passed${RESET}  ${RED}$FAIL failed${RESET}"
@@ -450,7 +472,8 @@ if [[ "$LAUNCH" =~ ^[Yy]$ ]]; then
   info "Launching NetMind..."
   docker compose -f "$INSTALL_DIR/observability/docker-compose.yml" up -d 2>/dev/null || true
   sleep 2
-  sudo -u "$REAL_USER" DISPLAY="${DISPLAY:-:0}" \
+  sudo -u "$REAL_USER" \
+    DISPLAY="${DISPLAY:-:0}" \
     XAUTHORITY="${XAUTHORITY:-$REAL_HOME/.Xauthority}" \
     python3 -B "$INSTALL_DIR/NetMindDesktop.py" &
   ok "NetMind launched!"
