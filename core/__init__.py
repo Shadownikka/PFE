@@ -1,0 +1,1 @@
+# NetMind Core — Windows Edition

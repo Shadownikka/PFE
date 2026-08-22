@@ -1,0 +1,27 @@
+# NetMind Windows — Python Dependencies
+# Install: pip install -r requirements.txt
+
+# ── Networking ───────────────────────────────
+scapy>=2.5.0
+psutil>=5.9.0
+
+# ── AI / LLM ─────────────────────────────────
+ollama>=0.1.8
+
+# ── Voice (optional) ─────────────────────────
+SpeechRecognition>=3.10.0
+PyAudio>=0.2.14
+
+# ── Metrics ──────────────────────────────────
+prometheus-client>=0.19.0
+
+# ── Desktop UI ───────────────────────────────
+PyQt6>=6.6.0
+PyQt6-Qt6>=6.6.0
+
+# ── HTTP Server (API) ────────────────────────
+flask>=3.0.0
+requests>=2.31.0
+
+# ── Packaging ────────────────────────────────
+pyinstaller>=6.0.0
