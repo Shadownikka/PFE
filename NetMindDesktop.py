@@ -170,7 +170,9 @@ class InitWorker(QThread):
             device_ips = {ip: info for ip, info in devices.items()}
             monitor    = WinTrafficMonitor(device_ips)
             controller = WinBandwidthLimiter()
+            controller.attach_monitor(monitor)   # wire blocking/limiting
             enable_ip_forwarding()
+
             self.done.emit({"iface": iface, "gw_ip": gw_ip, "gw_mac": gw_mac,
                             "my_ip": my_ip, "devices": devices,
                             "monitor": monitor, "tracker": None,
@@ -663,9 +665,14 @@ class DashboardPage(QWidget):
             else:
                 st = "⚪ Idle"
             activity = "—"
-            if self.tracker and not trusted:
-                try: activity = self.tracker.get_summary(ip)
-                except: activity = "—"
+            if not trusted:
+                if self.tracker:
+                    try: activity = self.tracker.get_summary(ip)
+                    except: pass
+                elif self.monitor:
+                    try: activity = self.monitor.get_summary(ip)
+                    except: pass
+
             rows.append((ip, info.get("name", ip), dk, uk, st, il, ib, activity, trusted))
 
         self.tbl.setRowCount(len(rows))
@@ -809,22 +816,33 @@ class DashboardPage(QWidget):
         self.chat_log.verticalScrollBar().setValue(self.chat_log.verticalScrollBar().maximum())
 
     def _ov_limit(self):
-        ip=self.ov_ip.text().strip()
+        ip = self.ov_ip.text().strip()
         if not ip: return
         try:
-            d,u=int(self.ov_down.text()),int(self.ov_up.text())
-            ok=self.controller.apply_limit(ip,d,u) if self.controller else False
-            self._ov_msg(f"✓ Limited {ip}" if ok else "Not initialized",not ok)
-        except Exception as e: self._ov_msg(str(e),True)
+            d, u = int(self.ov_down.text()), int(self.ov_up.text())
+            if not self.controller:
+                self._ov_msg("Not initialized", True); return
+            ok = self.controller.apply_limit(ip, d, u)
+            self._ov_msg(f"✓ Limited {ip}" if ok else f"⚠ Limit failed for {ip}", not ok)
+        except Exception as e:
+            self._ov_msg(str(e), True)
 
     def _ov_block(self):
-        ip=self.ov_ip.text().strip()
-        ok=self.controller.apply_limit(ip,1,1) if self.controller and ip else False
-        self._ov_msg(f"⛔ Blocked {ip}" if ok else "Failed",not ok)
+        ip = self.ov_ip.text().strip()
+        try:
+            ok = self.controller.apply_limit(ip, 1, 1) if self.controller and ip else False
+            self._ov_msg(f"⛔ Blocked {ip}" if ok else "Failed", not ok)
+        except Exception as e:
+            self._ov_msg(str(e), True)
 
     def _ov_unblock(self):
-        ip=self.ov_ip.text().strip()
-        if self.controller and ip: self.controller.remove_limit(ip); self._ov_msg(f"✓ Freed {ip}")
+        ip = self.ov_ip.text().strip()
+        try:
+            if self.controller and ip:
+                self.controller.remove_limit(ip)
+                self._ov_msg(f"✓ Freed {ip}")
+        except Exception as e:
+            self._ov_msg(str(e), True)
 
     def _restore_all(self):
         if not self.controller: return

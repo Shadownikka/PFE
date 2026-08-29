@@ -8,9 +8,11 @@ psutil>=5.9.0
 # ── AI / LLM ─────────────────────────────────
 ollama>=0.1.8
 
-# ── Voice (optional) ─────────────────────────
+# ── Voice (optional — requires separate install) ─
 SpeechRecognition>=3.10.0
-PyAudio>=0.2.14
+# PyAudio requires Visual C++ Build Tools to compile.
+# Install separately:  pip install pipwin && pipwin install pyaudio
+# Or skip — voice input is optional, app works fine without it.
 
 # ── Metrics ──────────────────────────────────
 prometheus-client>=0.19.0

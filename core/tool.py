@@ -198,6 +198,7 @@ class NetMindEngine:
             device_ips[info["ip"]] = info
         self.monitor = WinTrafficMonitor(device_ips)
         self.monitor.start()
+        self.limiter.attach_monitor(self.monitor)  # wire blocking/limiting
 
         # Start background scanner
         self.scanner.seed_devices(self.devices)
